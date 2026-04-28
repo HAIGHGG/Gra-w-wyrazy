@@ -1,14 +1,14 @@
 import React from "react";
 import { Progress } from "@/components/ui/progress";
 
-export default function ProgressCounter({ found, total }) {
+export default function ProgressCounter({ found, total, label = "Postęp" }) {
   const pct = total > 0 ? Math.round((found / total) * 100) : 0;
 
   return (
     <div className="space-y-2">
       <div className="flex items-baseline justify-between">
         <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          Postęp
+          {label}
         </span>
         <div className="flex items-baseline gap-1">
           <span className="text-2xl font-bold tabular-nums text-foreground">{found}</span>

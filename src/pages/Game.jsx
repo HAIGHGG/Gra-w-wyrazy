@@ -641,6 +641,20 @@ export default function Game() {
   };
   const foundWords = currentProgress.foundWords;
   const isCurrentPrefixLocked = currentProgress.revealedMissing;
+  const totalFoundWords = currentPrefixes.reduce(
+    (sum, currentPrefix) => sum + (prefixProgress[currentPrefix]?.foundWords.length || 0),
+    0
+  );
+  const totalAvailableWords = currentPrefixes.reduce(
+    (sum, currentPrefix) => sum + (typeof wordCounts[currentPrefix] === "number" ? wordCounts[currentPrefix] : 0),
+    0
+  );
+  const allAffixesProgressLabel = currentWordMode === "reverse"
+    ? "Postęp wszystkich końcówek"
+    : "Postęp wszystkich prefiksów";
+  const currentAffixProgressLabel = currentWordMode === "reverse"
+    ? "Postęp końcówki"
+    : "Postęp prefiksu";
 
   const handleSelectPrefix = (nextPrefix) => {
     if (nextPrefix === prefix || loading) return;
@@ -832,6 +846,14 @@ export default function Game() {
               lastGain={lastXpGain}
             />
 
+            <div className="rounded-lg border border-border bg-card p-4">
+              <ProgressCounter
+                found={totalFoundWords}
+                total={totalAvailableWords}
+                label={allAffixesProgressLabel}
+              />
+            </div>
+
             <WordInput
               onSubmit={handleSubmitWord}
               disabled={loading || isCurrentPrefixLocked}
@@ -860,7 +882,11 @@ export default function Game() {
 
           <div className="lg:col-span-3 space-y-6">
             <div className="bg-card border border-border rounded-lg p-5 space-y-5">
-              <ProgressCounter found={foundWords.length} total={allWords.length} />
+              <ProgressCounter
+                found={foundWords.length}
+                total={allWords.length}
+                label={currentAffixProgressLabel}
+              />
 
               <div className="border-t border-border pt-4">
                 <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-3 block">
