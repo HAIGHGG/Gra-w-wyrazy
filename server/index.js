@@ -125,18 +125,29 @@ function createPlayer(socket, name) {
   };
 }
 
-function serializePlayer(player, hostId) {
+function serializeWordEntry(entry, viewer) {
+  const canSeeWord = entry.playerId === viewer.id || viewer.prefixIndex > entry.prefixIndex;
+
+  return {
+    word: canSeeWord ? entry.word : "",
+    prefix: entry.prefix,
+    points: entry.points,
+    hidden: !canSeeWord,
+  };
+}
+
+function serializePlayer(player, hostId, viewer) {
   return {
     id: player.id,
     name: player.name,
     score: player.score,
     wordCount: player.wordCount,
-    words: player.words.slice(0, 12),
+    words: player.words.slice(0, 12).map((entry) => serializeWordEntry(entry, viewer)),
     isHost: player.id === hostId,
   };
 }
 
-function serializeRoom(room) {
+function serializeRoom(room, viewer) {
   return {
     code: room.code,
     state: room.state,
@@ -144,17 +155,14 @@ function serializeRoom(room) {
     endsAt: room.endsAt,
     serverNow: Date.now(),
     players: [...room.players.values()]
-      .map((player) => serializePlayer(player, room.hostId))
+      .map((player) => serializePlayer(player, room.hostId, viewer))
       .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "pl")),
   };
 }
 
 function emitRoomState(room) {
-  const publicState = serializeRoom(room);
-
-  io.to(room.code).emit("online:roomState", publicState);
-
   for (const player of room.players.values()) {
+    io.to(player.id).emit("online:roomState", serializeRoom(room, player));
     io.to(player.id).emit("online:playerState", {
       prefix: room.state === "running" ? getPlayerPrefix(room, player) : "",
       score: player.score,
@@ -253,7 +261,7 @@ io.on("connection", (socket) => {
     rooms.set(code, room);
     socket.join(code);
     socket.data.roomCode = code;
-    acknowledge(callback, { ok: true, room: serializeRoom(room), player: { prefix: "" } });
+    acknowledge(callback, { ok: true, room: serializeRoom(room, player), player: { prefix: "" } });
     emitRoomState(room);
   });
 
@@ -277,7 +285,7 @@ io.on("connection", (socket) => {
     room.players.set(socket.id, player);
     socket.join(roomCode);
     socket.data.roomCode = roomCode;
-    acknowledge(callback, { ok: true, room: serializeRoom(room), player: { prefix: "" } });
+    acknowledge(callback, { ok: true, room: serializeRoom(room, player), player: { prefix: "" } });
     emitRoomState(room);
   });
 
@@ -344,7 +352,13 @@ io.on("connection", (socket) => {
     player.usedWords.add(cleanWord);
     player.score += points;
     player.wordCount += 1;
-    player.words.unshift({ word: cleanWord, prefix: currentPrefix, points });
+    player.words.unshift({
+      word: cleanWord,
+      prefix: currentPrefix,
+      prefixIndex: player.prefixIndex,
+      playerId: player.id,
+      points,
+    });
     player.words = player.words.slice(0, 30);
     player.prefixIndex += 1;
 

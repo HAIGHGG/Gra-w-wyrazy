@@ -501,10 +501,17 @@ export default function OnlineGame() {
                         className="inline-flex items-center gap-1 rounded border border-accent/20 bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent"
                       >
                         <Check className="h-3 w-3" />
-                        <span>
-                          <span className="font-bold">{entry.prefix}</span>
-                          {entry.word.slice(entry.prefix.length)}
-                        </span>
+                        {entry.hidden ? (
+                          <span>
+                            <span className="font-bold">{entry.prefix}</span>
+                            {"***"}
+                          </span>
+                        ) : (
+                          <span>
+                            <span className="font-bold">{entry.prefix}</span>
+                            {entry.word.slice(entry.prefix.length)}
+                          </span>
+                        )}
                         <span className="font-bold tabular-nums text-muted-foreground">+{entry.points}</span>
                       </span>
                     ))}
