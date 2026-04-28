@@ -103,7 +103,6 @@ function createPlayer(socket, name) {
     wordCount: 0,
     words: [],
     usedWords: new Set(),
-    prefix: randomPrefix(),
   };
 }
 
@@ -124,6 +123,8 @@ function serializeRoom(room) {
     state: room.state,
     duration: room.duration,
     endsAt: room.endsAt,
+    serverNow: Date.now(),
+    prefix: room.state === "running" ? room.currentPrefix : "",
     players: [...room.players.values()]
       .map((player) => serializePlayer(player, room.hostId))
       .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "pl")),
@@ -137,7 +138,7 @@ function emitRoomState(room) {
 
   for (const player of room.players.values()) {
     io.to(player.id).emit("online:playerState", {
-      prefix: player.prefix,
+      prefix: room.state === "running" ? room.currentPrefix : "",
       score: player.score,
       wordCount: player.wordCount,
       isHost: player.id === room.hostId,
@@ -162,8 +163,9 @@ function resetRoomScores(room) {
     player.wordCount = 0;
     player.words = [];
     player.usedWords = new Set();
-    player.prefix = randomPrefix(player.prefix);
   }
+
+  room.currentPrefix = randomPrefix(room.currentPrefix);
 }
 
 function startRoom(room) {
@@ -225,13 +227,14 @@ io.on("connection", (socket) => {
       state: "idle",
       endsAt: null,
       timer: null,
+      currentPrefix: "",
       players: new Map([[socket.id, player]]),
     };
 
     rooms.set(code, room);
     socket.join(code);
     socket.data.roomCode = code;
-    acknowledge(callback, { ok: true, room: serializeRoom(room), player: { prefix: player.prefix } });
+    acknowledge(callback, { ok: true, room: serializeRoom(room), player: { prefix: "" } });
     emitRoomState(room);
   });
 
@@ -255,7 +258,7 @@ io.on("connection", (socket) => {
     room.players.set(socket.id, player);
     socket.join(roomCode);
     socket.data.roomCode = roomCode;
-    acknowledge(callback, { ok: true, room: serializeRoom(room), player: { prefix: player.prefix } });
+    acknowledge(callback, { ok: true, room: serializeRoom(room), player: { prefix: room.state === "running" ? room.currentPrefix : "" } });
     emitRoomState(room);
   });
 
@@ -301,8 +304,8 @@ io.on("connection", (socket) => {
 
     const cleanWord = normalizeWord(word);
 
-    if (!cleanWord.startsWith(player.prefix)) {
-      acknowledge(callback, { ok: false, error: `Słowo musi zaczynać się od "${player.prefix}".` });
+    if (!cleanWord.startsWith(room.currentPrefix)) {
+      acknowledge(callback, { ok: false, error: `Słowo musi zaczynać się od "${room.currentPrefix}".` });
       return;
     }
 
@@ -311,12 +314,12 @@ io.on("connection", (socket) => {
       return;
     }
 
-    if (!dictionaryByPrefix.get(player.prefix)?.has(cleanWord)) {
+    if (!dictionaryByPrefix.get(room.currentPrefix)?.has(cleanWord)) {
       acknowledge(callback, { ok: false, error: "SJP nie podaje takiego słowa dla tego prefiksu." });
       return;
     }
 
-    const previousPrefix = player.prefix;
+    const previousPrefix = room.currentPrefix;
     const points = cleanWord.length * SCORE_PER_LETTER;
 
     player.usedWords.add(cleanWord);
@@ -324,9 +327,9 @@ io.on("connection", (socket) => {
     player.wordCount += 1;
     player.words.unshift({ word: cleanWord, prefix: previousPrefix, points });
     player.words = player.words.slice(0, 30);
-    player.prefix = randomPrefix(previousPrefix);
+    room.currentPrefix = randomPrefix(previousPrefix);
 
-    acknowledge(callback, { ok: true, points, prefix: player.prefix });
+    acknowledge(callback, { ok: true, points, prefix: room.currentPrefix });
     emitRoomState(room);
   });
 

@@ -454,7 +454,9 @@ function TimeAttackGame() {
 }
 
 export default function Game() {
-  const [gameMode, setGameMode] = useState("classic");
+  const [gameMode, setGameMode] = useState(() =>
+    new URLSearchParams(window.location.search).has("room") ? "online" : "classic"
+  );
   const [prefix, setPrefix] = useState(DEFAULT_PREFIX);
   const [allWords, setAllWords] = useState([]);
   const [prefixProgress, setPrefixProgress] = useState(() => createEmptyPrefixProgress());

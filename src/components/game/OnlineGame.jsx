@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, LogOut, Play, Radio, RotateCcw, Trophy, Users } from "lucide-react";
+import { Check, Copy, Link2, LogOut, Play, Radio, RotateCcw, Trophy, Users } from "lucide-react";
 import { io } from "socket.io-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,11 +26,15 @@ function sortPlayers(players) {
   return [...players].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "pl"));
 }
 
+function getInitialRoomCode() {
+  return new URLSearchParams(window.location.search).get("room")?.trim().toUpperCase() || "";
+}
+
 export default function OnlineGame() {
   const [socket, setSocket] = useState(null);
   const [connected, setConnected] = useState(false);
   const [name, setName] = useState(() => window.localStorage.getItem("gra-w-wyrazy:online-name") || "");
-  const [roomCodeInput, setRoomCodeInput] = useState("");
+  const [roomCodeInput, setRoomCodeInput] = useState(getInitialRoomCode);
   const [duration, setDuration] = useState(DEFAULT_DURATION);
   const [room, setRoom] = useState(null);
   const [playerState, setPlayerState] = useState({ prefix: "", score: 0, wordCount: 0, isHost: false });
@@ -38,6 +42,7 @@ export default function OnlineGame() {
   const [status, setStatus] = useState(null);
   const statusTimerRef = useRef(null);
   const statusIdRef = useRef(0);
+  const serverClockOffsetRef = useRef(0);
 
   const showStatus = useCallback((nextStatus) => {
     statusIdRef.current += 1;
@@ -60,6 +65,10 @@ export default function OnlineGame() {
     nextSocket.on("connect", () => setConnected(true));
     nextSocket.on("disconnect", () => setConnected(false));
     nextSocket.on("online:roomState", (nextRoom) => {
+      if (typeof nextRoom.serverNow === "number") {
+        serverClockOffsetRef.current = nextRoom.serverNow - Date.now();
+      }
+
       setRoom(nextRoom);
       setDuration(nextRoom.duration);
     });
@@ -83,7 +92,10 @@ export default function OnlineGame() {
     }
 
     const updateTimeLeft = () => {
-      setTimeLeft(Math.max(0, Math.ceil((room.endsAt - Date.now()) / 1000)));
+      const serverNow = Date.now() + serverClockOffsetRef.current;
+      const secondsLeft = Math.ceil((room.endsAt - serverNow) / 1000);
+
+      setTimeLeft(Math.min(room.duration, Math.max(0, secondsLeft)));
     };
 
     updateTimeLeft();
@@ -190,6 +202,19 @@ export default function OnlineGame() {
     }
   };
 
+  const copyRoomLink = async () => {
+    if (!room?.code) return;
+
+    const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${room.code}`;
+
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      showStatus({ type: "success", message: "Link zaproszenia skopiowany." });
+    } catch {
+      showStatus({ type: "duplicate", message: inviteUrl });
+    }
+  };
+
   const submitWord = async (word) => {
     if (!socket || !room || !isRunning) return;
 
@@ -280,7 +305,7 @@ export default function OnlineGame() {
         <div className="lg:col-span-3">
           <div className="bg-card border border-border rounded-lg p-5 space-y-4">
             <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              Dołącz kodem
+              {roomCodeInput ? "Zaproszenie" : "Dołącz kodem"}
             </span>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Input
@@ -318,9 +343,14 @@ export default function OnlineGame() {
                 {room.code}
               </div>
             </div>
-            <Button type="button" variant="outline" size="icon" onClick={copyRoomCode} aria-label="Kopiuj kod">
-              <Copy className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="icon" onClick={copyRoomCode} aria-label="Kopiuj kod">
+                <Copy className="h-4 w-4" />
+              </Button>
+              <Button type="button" variant="outline" size="icon" onClick={copyRoomLink} aria-label="Kopiuj link">
+                <Link2 className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2 text-sm">
@@ -390,7 +420,18 @@ export default function OnlineGame() {
           </div>
         </div>
 
-        <PrefixDisplay prefix={playerState.prefix || "..."} />
+        {isRunning && playerState.prefix ? (
+          <PrefixDisplay prefix={playerState.prefix} />
+        ) : (
+          <div className="rounded-lg border border-border bg-card p-5">
+            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              Prefiks
+            </span>
+            <div className="mt-2 text-sm font-medium text-muted-foreground">
+              Pojawi się po starcie rundy.
+            </div>
+          </div>
+        )}
         <WordInput onSubmit={submitWord} disabled={!isRunning || !playerState.prefix} />
         <StatusToast status={status} />
       </div>
