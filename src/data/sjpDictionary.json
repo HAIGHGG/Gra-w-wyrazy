@@ -11,6 +11,7 @@
   ],
   "license": "SJP.PL game word list, available under GPL 2 or CC BY 4.0",
   "prefixLengths": [
+    2,
     3,
     4
   ],

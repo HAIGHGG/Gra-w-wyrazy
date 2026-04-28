@@ -14,7 +14,7 @@ const wordsOutputPath = path.join(rootDir, "public", "sjp-growy.txt");
 const morfeuszFilterPath = path.join(__dirname, "filter-nouns-with-morfeusz.py");
 
 const allowedWordPattern = /^[a-z\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c]+$/u;
-const prefixLengths = [3, 4];
+const prefixLengths = [2, 3, 4];
 const minimumWordsPerPrefix = 50;
 
 async function fetchBuffer(url) {

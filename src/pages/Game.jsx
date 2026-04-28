@@ -642,7 +642,7 @@ export default function Game() {
       <header className="relative z-10 border-b border-border bg-card">
         <div className="max-w-5xl mx-auto px-4 py-2 sm:px-6 min-h-14 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-lg font-bold text-foreground tracking-tight">
-            Gra w wyrazy by toti
+            Gra w wyrazy
           </h1>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Button
