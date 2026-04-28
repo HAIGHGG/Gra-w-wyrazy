@@ -10,12 +10,15 @@ const rootDir = path.resolve(__dirname, "..");
 const sourcePageUrl = "https://sjp.pl/sl/growy/";
 const metadataOutputPath = path.join(rootDir, "src", "data", "sjpDictionary.json");
 const prefixesOutputPath = path.join(rootDir, "src", "data", "prefixes.json");
+const suffixesOutputPath = path.join(rootDir, "src", "data", "suffixes.json");
 const wordsOutputPath = path.join(rootDir, "public", "sjp-growy.txt");
 const morfeuszFilterPath = path.join(__dirname, "filter-nouns-with-morfeusz.py");
 
 const allowedWordPattern = /^[a-z\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c]+$/u;
 const prefixLengths = [2, 3, 4];
 const minimumWordsPerPrefix = 50;
+const suffixLengths = [3, 4];
+const minimumWordsPerSuffix = 100;
 
 async function fetchBuffer(url) {
   const response = await fetch(url);
@@ -116,6 +119,24 @@ function generatePrefixes(words) {
     .map(([prefix]) => prefix);
 }
 
+function generateSuffixes(words) {
+  const counts = new Map();
+
+  for (const word of words) {
+    for (const length of suffixLengths) {
+      if (word.length >= length) {
+        const suffix = word.slice(-length);
+        counts.set(suffix, (counts.get(suffix) || 0) + 1);
+      }
+    }
+  }
+
+  return [...counts.entries()]
+    .filter(([, count]) => count >= minimumWordsPerSuffix)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "pl"))
+    .map(([suffix]) => suffix);
+}
+
 async function main() {
   const words = new Set();
   const zipUrl = await getLatestZipUrl();
@@ -139,6 +160,7 @@ async function main() {
   const candidates = [...words].sort((a, b) => a.localeCompare(b, "pl"));
   const sortedWords = await filterNounsWithMorfeusz(candidates);
   const prefixes = generatePrefixes(sortedWords);
+  const suffixes = generateSuffixes(sortedWords);
   const metadata = {
     source: sourcePageUrl,
     zipUrl,
@@ -149,16 +171,19 @@ async function main() {
     nounTags: ["subst", "depr"],
     prefixLengths,
     minimumWordsPerPrefix,
+    suffixLengths,
+    minimumWordsPerSuffix,
     license: "SJP.PL game word list, available under GPL 2 or CC BY 4.0",
   };
 
   await fs.mkdir(path.dirname(wordsOutputPath), { recursive: true });
   await fs.writeFile(wordsOutputPath, `${sortedWords.join("\n")}\n`, "utf8");
   await fs.writeFile(prefixesOutputPath, `${JSON.stringify(prefixes, null, 2)}\n`, "utf8");
+  await fs.writeFile(suffixesOutputPath, `${JSON.stringify(suffixes, null, 2)}\n`, "utf8");
   await fs.writeFile(metadataOutputPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
 
   console.log(
-    `Saved ${sortedWords.length} SJP noun lemmas, ${prefixes.length} prefixes ` +
+    `Saved ${sortedWords.length} SJP noun lemmas, ${prefixes.length} prefixes, ${suffixes.length} suffixes ` +
       `and ${candidates.length} candidates.`,
   );
 }

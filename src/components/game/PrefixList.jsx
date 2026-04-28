@@ -9,12 +9,13 @@ export default function PrefixList({
   wordCounts,
   onSelect,
   disabled,
+  title = "Prefiksy",
 }) {
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          Prefiksy
+          {title}
         </span>
         <span className="text-xs font-medium tabular-nums text-muted-foreground">
           {prefixes.length}

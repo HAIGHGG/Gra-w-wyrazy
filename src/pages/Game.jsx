@@ -20,7 +20,25 @@ const MIN_TIME_ATTACK_SECONDS = 10;
 const MAX_TIME_ATTACK_SECONDS = 300;
 const QUICK_ROUND_DURATIONS = [30, 60, 90, 120];
 const SCORE_PER_LETTER = 10;
-const PREFIXES = getKnownPrefixes();
+const WORD_MODES = {
+  classic: {
+    id: "classic",
+    label: "prefiks",
+    listTitle: "Prefiksy",
+    storageKey: STORAGE_KEY,
+    affixes: getKnownPrefixes("classic"),
+    matchWord: (word, prefix) => word.startsWith(prefix),
+  },
+  reverse: {
+    id: "reverse",
+    label: "końcówka",
+    listTitle: "Końcówki",
+    storageKey: `${STORAGE_KEY}:reverse`,
+    affixes: getKnownPrefixes("reverse"),
+    matchWord: (word, prefix) => word.endsWith(prefix),
+  },
+};
+const PREFIXES = WORD_MODES.classic.affixes;
 const DEFAULT_PREFIX = PREFIXES[0] || "";
 const BACKGROUND_VIDEO_URL =
   "https://www.youtube.com/embed/zZ7AimPACzc?autoplay=1&mute=1&loop=1&playlist=zZ7AimPACzc&controls=0&modestbranding=1&playsinline=1&rel=0";
@@ -43,11 +61,28 @@ function clampRoundDuration(value) {
   return Math.min(MAX_TIME_ATTACK_SECONDS, Math.max(MIN_TIME_ATTACK_SECONDS, duration));
 }
 
-function getRandomPrefix(excludedPrefix) {
-  const availablePrefixes = PREFIXES.filter((prefix) => prefix !== excludedPrefix);
-  const source = availablePrefixes.length > 0 ? availablePrefixes : PREFIXES;
+function getWordModeConfig(mode = "classic") {
+  return WORD_MODES[mode] || WORD_MODES.classic;
+}
 
-  return source[Math.floor(Math.random() * source.length)] || DEFAULT_PREFIX;
+function getWordModeFromGameMode(gameMode) {
+  return gameMode === "reverse" ? "reverse" : "classic";
+}
+
+function getDefaultPrefix(mode = "classic") {
+  return getWordModeConfig(mode).affixes[0] || "";
+}
+
+function matchesWordMode(word, prefix, mode = "classic") {
+  return getWordModeConfig(mode).matchWord(word, prefix);
+}
+
+function getRandomPrefix(excludedPrefix, mode = "classic") {
+  const prefixes = getWordModeConfig(mode).affixes;
+  const availablePrefixes = prefixes.filter((prefix) => prefix !== excludedPrefix);
+  const source = availablePrefixes.length > 0 ? availablePrefixes : prefixes;
+
+  return source[Math.floor(Math.random() * source.length)] || getDefaultPrefix(mode);
 }
 
 function getXpForLevel(level) {
@@ -74,7 +109,7 @@ function getLevelState(totalXp) {
   };
 }
 
-function normalizeFoundWords(words, prefix) {
+function normalizeFoundWords(words, prefix, mode = "classic") {
   if (!Array.isArray(words)) return [];
 
   return [
@@ -82,13 +117,13 @@ function normalizeFoundWords(words, prefix) {
       words
         .filter((word) => typeof word === "string")
         .map((word) => word.toLocaleLowerCase("pl-PL").trim())
-        .filter((word) => !prefix || word.startsWith(prefix))
+        .filter((word) => !prefix || matchesWordMode(word, prefix, mode))
     ),
   ];
 }
 
-function createEmptyPrefixProgress() {
-  return PREFIXES.reduce((acc, prefix) => {
+function createEmptyPrefixProgress(mode = "classic") {
+  return getWordModeConfig(mode).affixes.reduce((acc, prefix) => {
     acc[prefix] = {
       foundWords: [],
       revealedMissing: false,
@@ -103,21 +138,22 @@ function normalizeTotalXp(value) {
     : 0;
 }
 
-function normalizeSavedProgress(saved) {
-  const progressByPrefix = createEmptyPrefixProgress();
+function normalizeSavedProgress(saved, mode = "classic") {
+  const progressByPrefix = createEmptyPrefixProgress(mode);
+  const defaultPrefix = getDefaultPrefix(mode);
 
   if (saved?.prefixes && typeof saved.prefixes === "object") {
     Object.entries(saved.prefixes).forEach(([prefix, progress]) => {
-      if (!isKnownPrefix(prefix) || !progress || typeof progress !== "object") return;
+      if (!isKnownPrefix(prefix, mode) || !progress || typeof progress !== "object") return;
 
       progressByPrefix[prefix] = {
-        foundWords: normalizeFoundWords(progress.foundWords, prefix),
+        foundWords: normalizeFoundWords(progress.foundWords, prefix, mode),
         revealedMissing: Boolean(progress.revealedMissing),
       };
     });
 
     return {
-      activePrefix: isKnownPrefix(saved.activePrefix) ? saved.activePrefix : DEFAULT_PREFIX,
+      activePrefix: isKnownPrefix(saved.activePrefix, mode) ? saved.activePrefix : defaultPrefix,
       progressByPrefix,
       totalXp: normalizeTotalXp(saved.totalXp),
     };
@@ -127,16 +163,16 @@ function normalizeSavedProgress(saved) {
     saved &&
     typeof saved.prefix === "string" &&
     Array.isArray(saved.foundWords) &&
-    isKnownPrefix(saved.prefix)
+    isKnownPrefix(saved.prefix, mode)
   ) {
     const prefix = saved.prefix.toLocaleLowerCase("pl-PL").trim();
     progressByPrefix[prefix] = {
-      foundWords: normalizeFoundWords(saved.foundWords, prefix),
+      foundWords: normalizeFoundWords(saved.foundWords, prefix, mode),
       revealedMissing: false,
     };
 
     return {
-      activePrefix: prefix,
+      activePrefix: prefix || defaultPrefix,
       progressByPrefix,
       totalXp: normalizeTotalXp(saved.totalXp),
     };
@@ -145,23 +181,24 @@ function normalizeSavedProgress(saved) {
   return null;
 }
 
-function readSavedGame() {
+function readSavedGame(mode = "classic") {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(getWordModeConfig(mode).storageKey);
     if (!raw) return null;
 
-    return normalizeSavedProgress(JSON.parse(raw));
+    return normalizeSavedProgress(JSON.parse(raw), mode);
   } catch {
     return null;
   }
 }
 
-function saveGame(activePrefix, progressByPrefix, totalXp) {
+function saveGame(activePrefix, progressByPrefix, totalXp, mode = "classic") {
   try {
     window.localStorage.setItem(
-      STORAGE_KEY,
+      getWordModeConfig(mode).storageKey,
       JSON.stringify({
         version: 2,
+        mode,
         activePrefix,
         prefixes: progressByPrefix,
         totalXp,
@@ -466,6 +503,7 @@ export default function Game() {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [loadedWordMode, setLoadedWordMode] = useState("classic");
   const statusTimerRef = useRef(null);
   const statusIdRef = useRef(0);
   const xpGainIdRef = useRef(0);
@@ -481,18 +519,18 @@ export default function Game() {
     statusTimerRef.current = setTimeout(() => setStatus(null), 2500);
   };
 
-  const loadPrefixWords = useCallback(async (nextPrefix) => {
+  const loadPrefixWords = useCallback(async (nextPrefix, mode = "classic") => {
     if (!nextPrefix) return;
 
     setLoading(true);
     setStatus(null);
     setLastXpGain(null);
 
-    const result = await createRoundForPrefix(nextPrefix);
+    const result = await createRoundForPrefix(nextPrefix, mode);
     const cleanPrefix = result.prefix.toLocaleLowerCase("pl-PL").trim();
     const cleanWords = result.words
       .map((word) => word.toLocaleLowerCase("pl-PL").trim())
-      .filter((word) => word.startsWith(cleanPrefix));
+      .filter((word) => matchesWordMode(word, cleanPrefix, mode));
     const uniqueWords = [...new Set(cleanWords)];
 
     setPrefix(cleanPrefix);
@@ -501,8 +539,8 @@ export default function Game() {
     setLoading(false);
   }, []);
 
-  const loadPrefixCounts = useCallback(async () => {
-    setWordCounts(await getPrefixCounts());
+  const loadPrefixCounts = useCallback(async (mode = "classic") => {
+    setWordCounts(await getPrefixCounts(mode));
   }, []);
 
   useEffect(() => {
@@ -514,26 +552,50 @@ export default function Game() {
   }, []);
 
   useEffect(() => {
-    const savedGame = readSavedGame();
+    const initialWordMode = getWordModeFromGameMode(gameMode);
+    const savedGame = readSavedGame(initialWordMode);
+    const fallbackPrefix = getDefaultPrefix(initialWordMode);
+
+    if (!["classic", "reverse"].includes(gameMode)) return;
+
+    setInitialized(false);
 
     if (savedGame) {
       setPrefix(savedGame.activePrefix);
       setPrefixProgress(savedGame.progressByPrefix);
       setTotalXp(savedGame.totalXp);
-      loadPrefixWords(savedGame.activePrefix).then(() => setInitialized(true));
+      loadPrefixWords(savedGame.activePrefix, initialWordMode).then(() => {
+        setLoadedWordMode(initialWordMode);
+        setInitialized(true);
+      });
     } else {
-      loadPrefixWords(DEFAULT_PREFIX).then(() => setInitialized(true));
+      setPrefix(fallbackPrefix);
+      setPrefixProgress(createEmptyPrefixProgress(initialWordMode));
+      setTotalXp(0);
+      loadPrefixWords(fallbackPrefix, initialWordMode).then(() => {
+        setLoadedWordMode(initialWordMode);
+        setInitialized(true);
+      });
     }
 
-    loadPrefixCounts();
-  }, [loadPrefixCounts, loadPrefixWords]);
+    loadPrefixCounts(initialWordMode);
+  }, [gameMode, loadPrefixCounts, loadPrefixWords]);
 
   useEffect(() => {
-    if (!initialized || !prefix || loading) return;
+    if (
+      !initialized ||
+      !prefix ||
+      loading ||
+      !["classic", "reverse"].includes(gameMode) ||
+      loadedWordMode !== getWordModeFromGameMode(gameMode)
+    ) return;
 
-    saveGame(prefix, prefixProgress, totalXp);
-  }, [initialized, loading, prefix, prefixProgress, totalXp]);
+    saveGame(prefix, prefixProgress, totalXp, getWordModeFromGameMode(gameMode));
+  }, [gameMode, initialized, loadedWordMode, loading, prefix, prefixProgress, totalXp]);
 
+  const currentWordMode = getWordModeFromGameMode(gameMode);
+  const currentWordModeConfig = getWordModeConfig(currentWordMode);
+  const currentPrefixes = currentWordModeConfig.affixes;
   const currentProgress = prefixProgress[prefix] || {
     foundWords: [],
     revealedMissing: false,
@@ -544,20 +606,22 @@ export default function Game() {
   const handleSelectPrefix = (nextPrefix) => {
     if (nextPrefix === prefix || loading) return;
 
-    loadPrefixWords(nextPrefix);
+    loadPrefixWords(nextPrefix, currentWordMode);
   };
 
   const handleResetGame = async () => {
     try {
-      window.localStorage.removeItem(STORAGE_KEY);
+      window.localStorage.removeItem(currentWordModeConfig.storageKey);
     } catch {
       // localStorage can be unavailable in private mode.
     }
 
-    setPrefixProgress(createEmptyPrefixProgress());
+    const defaultPrefix = getDefaultPrefix(currentWordMode);
+
+    setPrefixProgress(createEmptyPrefixProgress(currentWordMode));
     setTotalXp(0);
     setLastXpGain(null);
-    await loadPrefixWords(DEFAULT_PREFIX);
+    await loadPrefixWords(defaultPrefix, currentWordMode);
     showStatus({ type: "success", message: "Gra zresetowana. Możesz zacząć od nowa." });
   };
 
@@ -571,7 +635,9 @@ export default function Game() {
     }));
     showStatus({
       type: "duplicate",
-      message: "Brakujące słowa odkryte. Ten prefiks jest teraz zablokowany.",
+      message: currentWordMode === "reverse"
+        ? "Brakujące słowa odkryte. Ta końcówka jest teraz zablokowana."
+        : "Brakujące słowa odkryte. Ten prefiks jest teraz zablokowany.",
     });
   };
 
@@ -579,13 +645,18 @@ export default function Game() {
     if (isCurrentPrefixLocked) {
       showStatus({
         type: "error",
-        message: "Ten prefiks jest zablokowany po odkryciu brakujących słów.",
+        message: `Ta ${currentWordModeConfig.label} jest zablokowana po odkryciu brakujących słów.`,
       });
       return;
     }
 
-    if (!word.startsWith(prefix)) {
-      showStatus({ type: "error", message: `Słowo musi zaczynać się od "${prefix}"` });
+    if (!matchesWordMode(word, prefix, currentWordMode)) {
+      showStatus({
+        type: "error",
+        message: currentWordMode === "reverse"
+          ? `Słowo musi kończyć się na "${prefix}"`
+          : `Słowo musi zaczynać się od "${prefix}"`,
+      });
       return;
     }
 
@@ -595,7 +666,12 @@ export default function Game() {
     }
 
     if (!allWords.includes(word)) {
-      showStatus({ type: "error", message: "SJP nie podaje takiego słowa dla tego prefiksu" });
+      showStatus({
+        type: "error",
+        message: currentWordMode === "reverse"
+          ? "SJP nie podaje takiego słowa dla tej końcówki"
+          : "SJP nie podaje takiego słowa dla tego prefiksu",
+      });
       return;
     }
 
@@ -626,11 +702,13 @@ export default function Game() {
     });
   };
 
-  if (!initialized) {
+  if (["classic", "reverse"].includes(gameMode) && !initialized) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-muted-foreground">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        <span className="text-sm font-medium">Przygotowywanie prefiksów...</span>
+        <span className="text-sm font-medium">
+          {currentWordMode === "reverse" ? "Przygotowywanie końcówek..." : "Przygotowywanie prefiksów..."}
+        </span>
       </div>
     );
   }
@@ -656,6 +734,16 @@ export default function Game() {
             </Button>
             <Button
               type="button"
+              variant={gameMode === "reverse" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setGameMode("reverse")}
+              className="h-9 gap-2"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Odwrotny
+            </Button>
+            <Button
+              type="button"
               variant={gameMode === "time" ? "default" : "outline"}
               size="sm"
               onClick={() => setGameMode("time")}
@@ -674,7 +762,7 @@ export default function Game() {
               <Globe2 className="h-4 w-4" />
               Online
             </Button>
-            {gameMode === "classic" && (
+            {["classic", "reverse"].includes(gameMode) && (
               <Button
                 type="button"
                 variant="outline"
@@ -699,7 +787,7 @@ export default function Game() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-8">
           <div className="lg:col-span-2 space-y-6">
-            <PrefixDisplay prefix={prefix} />
+            <PrefixDisplay prefix={prefix} mode={currentWordMode} />
 
             <LevelProgress
               levelState={getLevelState(totalXp)}
@@ -713,19 +801,22 @@ export default function Game() {
 
             {isCurrentPrefixLocked && (
               <div className="rounded-lg border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-sm font-medium text-yellow-700">
-                Ten prefiks jest zablokowany, bo pokazano brakujące słowa.
+                {currentWordMode === "reverse"
+                  ? "Ta końcówka jest zablokowana, bo pokazano brakujące słowa."
+                  : "Ten prefiks jest zablokowany, bo pokazano brakujące słowa."}
               </div>
             )}
 
             <StatusToast status={status} />
 
             <PrefixList
-              prefixes={PREFIXES}
+              prefixes={currentPrefixes}
               activePrefix={prefix}
               progressByPrefix={prefixProgress}
               wordCounts={wordCounts}
               onSelect={handleSelectPrefix}
               disabled={loading}
+              title={currentWordModeConfig.listTitle}
             />
           </div>
 
@@ -737,7 +828,7 @@ export default function Game() {
                 <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-3 block">
                   Znalezione
                 </span>
-                <WordList words={foundWords} prefix={prefix} />
+                <WordList words={foundWords} prefix={prefix} mode={currentWordMode} />
               </div>
 
               <div className="border-t border-border pt-4">
@@ -747,6 +838,7 @@ export default function Game() {
                   foundWords={foundWords}
                   revealed={isCurrentPrefixLocked}
                   onReveal={handleRevealMissing}
+                  mode={currentWordMode}
                 />
               </div>
             </div>

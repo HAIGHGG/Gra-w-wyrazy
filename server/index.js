@@ -159,8 +159,8 @@ function createPlayer(socket, name) {
   };
 }
 
-function serializeWordEntry(entry, viewer) {
-  const canSeeWord = entry.playerId === viewer.id || viewer.prefixIndex > entry.prefixIndex;
+function serializeWordEntry(entry, viewer, revealAllWords) {
+  const canSeeWord = revealAllWords || entry.playerId === viewer.id || viewer.prefixIndex > entry.prefixIndex;
 
   return {
     word: canSeeWord ? entry.word : "",
@@ -172,18 +172,22 @@ function serializeWordEntry(entry, viewer) {
   };
 }
 
-function serializePlayer(player, hostId, viewer) {
+function serializePlayer(player, hostId, viewer, revealAllWords) {
+  const visibleWords = revealAllWords ? player.words : player.words.slice(0, 12);
+
   return {
     id: player.id,
     name: player.name,
     score: player.score,
     wordCount: player.wordCount,
-    words: player.words.slice(0, 12).map((entry) => serializeWordEntry(entry, viewer)),
+    words: visibleWords.map((entry) => serializeWordEntry(entry, viewer, revealAllWords)),
     isHost: player.id === hostId,
   };
 }
 
 function serializeRoom(room, viewer) {
+  const revealAllWords = room.state === "finished";
+
   return {
     code: room.code,
     state: room.state,
@@ -191,7 +195,7 @@ function serializeRoom(room, viewer) {
     endsAt: room.endsAt,
     serverNow: Date.now(),
     players: [...room.players.values()]
-      .map((player) => serializePlayer(player, room.hostId, viewer))
+      .map((player) => serializePlayer(player, room.hostId, viewer, revealAllWords))
       .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "pl")),
   };
 }
@@ -428,7 +432,6 @@ io.on("connection", (socket) => {
       hintsUsed,
       points,
     });
-    player.words = player.words.slice(0, 30);
     player.prefixIndex += 1;
     player.hintCount = 0;
 

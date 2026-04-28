@@ -1,11 +1,27 @@
 import prefixConfig from "@/data/prefixes.json";
+import suffixConfig from "@/data/suffixes.json";
 import sjpDictionary from "@/data/sjpDictionary.json";
 
 let dictionaryPromise;
-const prefixCache = new Map();
-let prefixIndexPromise;
+const affixCache = new Map();
+const affixIndexPromises = new Map();
 
 const randomItem = (items) => items[Math.floor(Math.random() * items.length)];
+
+const modeConfigs = {
+  classic: {
+    affixes: prefixConfig,
+    getAffix: (word, length) => word.slice(0, length),
+  },
+  reverse: {
+    affixes: suffixConfig,
+    getAffix: (word, length) => word.slice(-length),
+  },
+};
+
+function getModeConfig(mode = "classic") {
+  return modeConfigs[mode] || modeConfigs.classic;
+}
 
 async function loadDictionary() {
   if (!dictionaryPromise) {
@@ -23,66 +39,71 @@ async function loadDictionary() {
   return dictionaryPromise;
 }
 
-async function loadPrefixIndex() {
-  if (!prefixIndexPromise) {
-    prefixIndexPromise = loadDictionary().then((dictionary) => {
-      const prefixSets = new Map(prefixConfig.map((prefix) => [prefix, []]));
-      const prefixLengths = [...new Set(prefixConfig.map((prefix) => prefix.length))];
+async function loadAffixIndex(mode = "classic") {
+  const config = getModeConfig(mode);
+
+  if (!affixIndexPromises.has(mode)) {
+    affixIndexPromises.set(mode, loadDictionary().then((dictionary) => {
+      const affixSets = new Map(config.affixes.map((affix) => [affix, []]));
+      const affixLengths = [...new Set(config.affixes.map((affix) => affix.length))];
 
       for (const word of dictionary) {
-        for (const length of prefixLengths) {
+        for (const length of affixLengths) {
           if (word.length >= length) {
-            const prefix = word.slice(0, length);
+            const affix = config.getAffix(word, length);
 
-            if (prefixSets.has(prefix)) {
-              prefixSets.get(prefix).push(word);
+            if (affixSets.has(affix)) {
+              affixSets.get(affix).push(word);
             }
           }
         }
       }
 
-      for (const [prefix, words] of prefixSets) {
-        prefixCache.set(prefix, words);
+      for (const [affix, words] of affixSets) {
+        affixCache.set(`${mode}:${affix}`, words);
       }
 
-      return prefixSets;
-    });
+      return affixSets;
+    }));
   }
 
-  return prefixIndexPromise;
+  return affixIndexPromises.get(mode);
 }
 
-export async function createRound() {
-  const prefix = randomItem(prefixConfig);
+export async function createRound(mode = "classic") {
+  const config = getModeConfig(mode);
+  const prefix = randomItem(config.affixes);
 
-  return createRoundForPrefix(prefix);
+  return createRoundForPrefix(prefix, mode);
 }
 
-export async function createRoundForPrefix(prefix) {
-  if (!prefixCache.has(prefix)) {
-    await loadPrefixIndex();
+export async function createRoundForPrefix(prefix, mode = "classic") {
+  const cacheKey = `${mode}:${prefix}`;
+
+  if (!affixCache.has(cacheKey)) {
+    await loadAffixIndex(mode);
   }
 
-  const words = prefixCache.get(prefix);
+  const words = affixCache.get(cacheKey);
 
   return {
     prefix,
-    words: [...words].sort(() => Math.random() - 0.5),
+    words: [...(words || [])].sort(() => Math.random() - 0.5),
   };
 }
 
-export async function getPrefixCounts() {
-  const prefixIndex = await loadPrefixIndex();
+export async function getPrefixCounts(mode = "classic") {
+  const prefixIndex = await loadAffixIndex(mode);
 
   return Object.fromEntries(
     [...prefixIndex.entries()].map(([prefix, words]) => [prefix, words.length])
   );
 }
 
-export function getKnownPrefixes() {
-  return [...prefixConfig];
+export function getKnownPrefixes(mode = "classic") {
+  return [...getModeConfig(mode).affixes];
 }
 
-export function isKnownPrefix(prefix) {
-  return prefixConfig.includes(prefix);
+export function isKnownPrefix(prefix, mode = "classic") {
+  return getModeConfig(mode).affixes.includes(prefix);
 }

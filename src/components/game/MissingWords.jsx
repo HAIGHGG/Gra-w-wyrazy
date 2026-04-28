@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Eye, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-export default function MissingWords({ words, prefix, foundWords, revealed, onReveal }) {
+export default function MissingWords({ words, prefix, foundWords, revealed, onReveal, mode = "classic" }) {
   const missing = words.filter((word) => !foundWords.includes(word));
 
   if (missing.length === 0 && foundWords.length > 0) {
@@ -47,8 +47,17 @@ export default function MissingWords({ words, prefix, foundWords, revealed, onRe
                   key={word}
                   className="inline-block px-2.5 py-1 bg-secondary text-muted-foreground border border-border rounded-md text-sm"
                 >
-                  <span className="font-semibold">{prefix}</span>
-                  {word.slice(prefix.length)}
+                  {mode === "reverse" ? (
+                    <>
+                      {word.slice(0, -prefix.length)}
+                      <span className="font-semibold">{prefix}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-semibold">{prefix}</span>
+                      {word.slice(prefix.length)}
+                    </>
+                  )}
                 </span>
               ))}
             </div>

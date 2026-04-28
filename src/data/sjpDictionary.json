@@ -15,5 +15,10 @@
     3,
     4
   ],
-  "minimumWordsPerPrefix": 50
+  "minimumWordsPerPrefix": 50,
+  "suffixLengths": [
+    3,
+    4
+  ],
+  "minimumWordsPerSuffix": 100
 }

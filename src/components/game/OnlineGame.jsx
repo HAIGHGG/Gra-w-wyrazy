@@ -517,11 +517,14 @@ export default function OnlineGame() {
           </div>
 
           <div className="space-y-2">
-            {rankedPlayers.map((player, index) => (
-              <div
-                key={player.id}
-                className="rounded-md border border-border bg-background/60 px-3 py-2"
-              >
+            {rankedPlayers.map((player, index) => {
+              const displayedWords = isFinished ? player.words : player.words.slice(0, 6);
+
+              return (
+                <div
+                  key={player.id}
+                  className="rounded-md border border-border bg-background/60 px-3 py-2"
+                >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -546,9 +549,9 @@ export default function OnlineGame() {
                   </span>
                 </div>
 
-                {player.words.length > 0 && (
+                {displayedWords.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {player.words.slice(0, 6).map((entry) => (
+                    {displayedWords.map((entry) => (
                       <span
                         key={`${player.id}:${entry.prefixIndex}:${entry.prefix}:${entry.word}`}
                         className="inline-flex items-center gap-1 rounded border border-accent/20 bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent"
@@ -576,8 +579,9 @@ export default function OnlineGame() {
                     ))}
                   </div>
                 )}
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
