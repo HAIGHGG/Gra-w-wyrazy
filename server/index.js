@@ -113,6 +113,39 @@ function getPlayerPrefix(room, player) {
   return room.prefixSequence[player.prefixIndex] || "";
 }
 
+function getHintTargetWord(prefix) {
+  const wordsForPrefix = dictionaryByPrefix.get(prefix);
+  if (!wordsForPrefix) return "";
+
+  for (const word of wordsForPrefix) {
+    if (word.length > prefix.length) {
+      return word;
+    }
+  }
+
+  return "";
+}
+
+function getPlayerHintState(room, player) {
+  const prefix = getPlayerPrefix(room, player);
+  const targetWord = getHintTargetWord(prefix);
+  const suffix = targetWord.slice(prefix.length);
+  const hintCount = Math.min(player.hintCount, suffix.length);
+
+  return {
+    hint: suffix.slice(0, hintCount),
+    hintCount,
+    maxHints: suffix.length,
+  };
+}
+
+function getWordPoints(word, prefix, hintCount) {
+  const basePoints = Math.max(0, (word.length - prefix.length) * SCORE_PER_LETTER);
+  const penalty = hintCount * (basePoints / 2);
+
+  return Math.max(0, basePoints - penalty);
+}
+
 function createPlayer(socket, name) {
   return {
     id: socket.id,
@@ -122,6 +155,7 @@ function createPlayer(socket, name) {
     words: [],
     usedWords: new Set(),
     prefixIndex: 0,
+    hintCount: 0,
   };
 }
 
@@ -131,7 +165,9 @@ function serializeWordEntry(entry, viewer) {
   return {
     word: canSeeWord ? entry.word : "",
     prefix: entry.prefix,
+    prefixIndex: entry.prefixIndex,
     points: entry.points,
+    hintsUsed: entry.hintsUsed,
     hidden: !canSeeWord,
   };
 }
@@ -160,15 +196,26 @@ function serializeRoom(room, viewer) {
   };
 }
 
+function serializePlayerState(room, player) {
+  return {
+    prefix: room.state === "running" ? getPlayerPrefix(room, player) : "",
+    score: player.score,
+    wordCount: player.wordCount,
+    isHost: player.id === room.hostId,
+    ...(room.state === "running"
+      ? getPlayerHintState(room, player)
+      : {
+          hint: "",
+          hintCount: 0,
+          maxHints: 0,
+        }),
+  };
+}
+
 function emitRoomState(room) {
   for (const player of room.players.values()) {
     io.to(player.id).emit("online:roomState", serializeRoom(room, player));
-    io.to(player.id).emit("online:playerState", {
-      prefix: room.state === "running" ? getPlayerPrefix(room, player) : "",
-      score: player.score,
-      wordCount: player.wordCount,
-      isHost: player.id === room.hostId,
-    });
+    io.to(player.id).emit("online:playerState", serializePlayerState(room, player));
   }
 }
 
@@ -190,6 +237,7 @@ function resetRoomScores(room) {
     player.words = [];
     player.usedWords = new Set();
     player.prefixIndex = 0;
+    player.hintCount = 0;
   }
 
   room.prefixSequence = createPrefixSequence();
@@ -314,6 +362,25 @@ io.on("connection", (socket) => {
     acknowledge(callback, { ok: true });
   });
 
+  socket.on("online:requestHint", (_payload, callback) => {
+    const room = rooms.get(socket.data.roomCode);
+    const player = room?.players.get(socket.id);
+
+    if (!room || !player || room.state !== "running") {
+      acknowledge(callback, { ok: false, error: "Runda nie jest aktywna." });
+      return;
+    }
+
+    const { hintCount, maxHints } = getPlayerHintState(room, player);
+
+    if (hintCount < maxHints) {
+      player.hintCount += 1;
+    }
+
+    acknowledge(callback, { ok: true, ...getPlayerHintState(room, player) });
+    emitRoomState(room);
+  });
+
   socket.on("online:submitWord", ({ word } = {}, callback) => {
     const room = rooms.get(socket.data.roomCode);
     const player = room?.players.get(socket.id);
@@ -347,7 +414,8 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const points = cleanWord.length * SCORE_PER_LETTER;
+    const hintsUsed = player.hintCount;
+    const points = getWordPoints(cleanWord, currentPrefix, hintsUsed);
 
     player.usedWords.add(cleanWord);
     player.score += points;
@@ -357,10 +425,12 @@ io.on("connection", (socket) => {
       prefix: currentPrefix,
       prefixIndex: player.prefixIndex,
       playerId: player.id,
+      hintsUsed,
       points,
     });
     player.words = player.words.slice(0, 30);
     player.prefixIndex += 1;
+    player.hintCount = 0;
 
     acknowledge(callback, { ok: true, points, prefix: getPlayerPrefix(room, player) });
     emitRoomState(room);

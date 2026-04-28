@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, Link2, LogOut, Play, Radio, RotateCcw, Trophy, Users } from "lucide-react";
+import { Check, Copy, Lightbulb, Link2, LogOut, Play, Radio, RotateCcw, Trophy, Users } from "lucide-react";
 import { io } from "socket.io-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +37,15 @@ export default function OnlineGame() {
   const [roomCodeInput, setRoomCodeInput] = useState(getInitialRoomCode);
   const [duration, setDuration] = useState(DEFAULT_DURATION);
   const [room, setRoom] = useState(null);
-  const [playerState, setPlayerState] = useState({ prefix: "", score: 0, wordCount: 0, isHost: false });
+  const [playerState, setPlayerState] = useState({
+    prefix: "",
+    score: 0,
+    wordCount: 0,
+    isHost: false,
+    hint: "",
+    hintCount: 0,
+    maxHints: 0,
+  });
   const [timeLeft, setTimeLeft] = useState(0);
   const [status, setStatus] = useState(null);
   const statusTimerRef = useRef(null);
@@ -187,7 +195,7 @@ export default function OnlineGame() {
   const leaveRoom = () => {
     socket?.emit("online:leaveRoom");
     setRoom(null);
-    setPlayerState({ prefix: "", score: 0, wordCount: 0, isHost: false });
+    setPlayerState({ prefix: "", score: 0, wordCount: 0, isHost: false, hint: "", hintCount: 0, maxHints: 0 });
     setTimeLeft(0);
   };
 
@@ -226,6 +234,23 @@ export default function OnlineGame() {
     }
 
     showStatus({ type: "success", message: `+${response.points} pkt` });
+  };
+
+  const requestHint = async () => {
+    if (!socket || !room || !isRunning) return;
+
+    const response = await emitWithAck("online:requestHint", {});
+
+    if (!response?.ok) {
+      showStatus({ type: "error", message: response?.error || "Nie udało się pobrać podpowiedzi." });
+      return;
+    }
+
+    if (response.hintCount >= response.maxHints) {
+      showStatus({ type: "duplicate", message: "Odkryto wszystkie litery podpowiedzi." });
+    } else {
+      showStatus({ type: "duplicate", message: "Dodano podpowiedź." });
+    }
   };
 
   if (!room) {
@@ -432,6 +457,34 @@ export default function OnlineGame() {
             </div>
           </div>
         )}
+        {isRunning && playerState.prefix && (
+          <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                  Podpowiedź
+                </span>
+                <div className="mt-1 font-mono text-lg font-bold text-foreground">
+                  {playerState.hint ? `${playerState.prefix}${playerState.hint}` : "brak"}
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={requestHint}
+                disabled={!isRunning || playerState.hintCount >= playerState.maxHints}
+                className="h-9 gap-2"
+              >
+                <Lightbulb className="h-4 w-4" />
+                Litera
+              </Button>
+            </div>
+            <div className="text-xs font-medium text-muted-foreground">
+              {playerState.hintCount} / {playerState.maxHints} użytych
+            </div>
+          </div>
+        )}
         <WordInput onSubmit={submitWord} disabled={!isRunning || !playerState.prefix} />
         <StatusToast status={status} />
       </div>
@@ -497,7 +550,7 @@ export default function OnlineGame() {
                   <div className="mt-2 flex flex-wrap gap-1">
                     {player.words.slice(0, 6).map((entry) => (
                       <span
-                        key={`${player.id}:${entry.prefix}:${entry.word}`}
+                        key={`${player.id}:${entry.prefixIndex}:${entry.prefix}:${entry.word}`}
                         className="inline-flex items-center gap-1 rounded border border-accent/20 bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent"
                       >
                         <Check className="h-3 w-3" />
@@ -510,6 +563,12 @@ export default function OnlineGame() {
                           <span>
                             <span className="font-bold">{entry.prefix}</span>
                             {entry.word.slice(entry.prefix.length)}
+                          </span>
+                        )}
+                        {entry.hintsUsed > 0 && !entry.hidden && (
+                          <span className="font-bold tabular-nums text-yellow-600">
+                            <Lightbulb className="inline h-3 w-3" />
+                            {entry.hintsUsed}
                           </span>
                         )}
                         <span className="font-bold tabular-nums text-muted-foreground">+{entry.points}</span>
