@@ -14,6 +14,7 @@ import MissingWords from "../components/game/MissingWords";
 import OnlineGame from "../components/game/OnlineGame";
 
 const STORAGE_KEY = "gra-w-wyrazy:game-state";
+const SHARED_XP_STORAGE_KEY = `${STORAGE_KEY}:xp`;
 const XP_PER_LETTER = 5;
 const DEFAULT_TIME_ATTACK_SECONDS = 30;
 const MIN_TIME_ATTACK_SECONDS = 10;
@@ -155,7 +156,6 @@ function normalizeSavedProgress(saved, mode = "classic") {
     return {
       activePrefix: isKnownPrefix(saved.activePrefix, mode) ? saved.activePrefix : defaultPrefix,
       progressByPrefix,
-      totalXp: normalizeTotalXp(saved.totalXp),
     };
   }
 
@@ -174,7 +174,6 @@ function normalizeSavedProgress(saved, mode = "classic") {
     return {
       activePrefix: prefix || defaultPrefix,
       progressByPrefix,
-      totalXp: normalizeTotalXp(saved.totalXp),
     };
   }
 
@@ -192,7 +191,46 @@ function readSavedGame(mode = "classic") {
   }
 }
 
-function saveGame(activePrefix, progressByPrefix, totalXp, mode = "classic") {
+function readLegacyTotalXp(mode = "classic") {
+  try {
+    const raw = window.localStorage.getItem(getWordModeConfig(mode).storageKey);
+    if (!raw) return 0;
+
+    return normalizeTotalXp(JSON.parse(raw)?.totalXp);
+  } catch {
+    return 0;
+  }
+}
+
+function readSharedTotalXp() {
+  try {
+    const raw = window.localStorage.getItem(SHARED_XP_STORAGE_KEY);
+
+    if (raw) {
+      return normalizeTotalXp(JSON.parse(raw)?.totalXp);
+    }
+  } catch {
+    // Fall back to legacy per-mode XP below.
+  }
+
+  return Math.max(readLegacyTotalXp("classic"), readLegacyTotalXp("reverse"));
+}
+
+function saveSharedTotalXp(totalXp) {
+  try {
+    window.localStorage.setItem(
+      SHARED_XP_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        totalXp: normalizeTotalXp(totalXp),
+      })
+    );
+  } catch {
+    // localStorage can be unavailable in private mode or when storage is full.
+  }
+}
+
+function saveGame(activePrefix, progressByPrefix, mode = "classic") {
   try {
     window.localStorage.setItem(
       getWordModeConfig(mode).storageKey,
@@ -201,7 +239,6 @@ function saveGame(activePrefix, progressByPrefix, totalXp, mode = "classic") {
         mode,
         activePrefix,
         prefixes: progressByPrefix,
-        totalXp,
       })
     );
   } catch {
@@ -498,7 +535,7 @@ export default function Game() {
   const [allWords, setAllWords] = useState([]);
   const [prefixProgress, setPrefixProgress] = useState(() => createEmptyPrefixProgress());
   const [wordCounts, setWordCounts] = useState({});
-  const [totalXp, setTotalXp] = useState(0);
+  const [totalXp, setTotalXp] = useState(readSharedTotalXp);
   const [lastXpGain, setLastXpGain] = useState(null);
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -563,7 +600,6 @@ export default function Game() {
     if (savedGame) {
       setPrefix(savedGame.activePrefix);
       setPrefixProgress(savedGame.progressByPrefix);
-      setTotalXp(savedGame.totalXp);
       loadPrefixWords(savedGame.activePrefix, initialWordMode).then(() => {
         setLoadedWordMode(initialWordMode);
         setInitialized(true);
@@ -571,7 +607,6 @@ export default function Game() {
     } else {
       setPrefix(fallbackPrefix);
       setPrefixProgress(createEmptyPrefixProgress(initialWordMode));
-      setTotalXp(0);
       loadPrefixWords(fallbackPrefix, initialWordMode).then(() => {
         setLoadedWordMode(initialWordMode);
         setInitialized(true);
@@ -590,8 +625,12 @@ export default function Game() {
       loadedWordMode !== getWordModeFromGameMode(gameMode)
     ) return;
 
-    saveGame(prefix, prefixProgress, totalXp, getWordModeFromGameMode(gameMode));
-  }, [gameMode, initialized, loadedWordMode, loading, prefix, prefixProgress, totalXp]);
+    saveGame(prefix, prefixProgress, getWordModeFromGameMode(gameMode));
+  }, [gameMode, initialized, loadedWordMode, loading, prefix, prefixProgress]);
+
+  useEffect(() => {
+    saveSharedTotalXp(totalXp);
+  }, [totalXp]);
 
   const currentWordMode = getWordModeFromGameMode(gameMode);
   const currentWordModeConfig = getWordModeConfig(currentWordMode);
@@ -619,10 +658,9 @@ export default function Game() {
     const defaultPrefix = getDefaultPrefix(currentWordMode);
 
     setPrefixProgress(createEmptyPrefixProgress(currentWordMode));
-    setTotalXp(0);
     setLastXpGain(null);
     await loadPrefixWords(defaultPrefix, currentWordMode);
-    showStatus({ type: "success", message: "Gra zresetowana. Możesz zacząć od nowa." });
+    showStatus({ type: "success", message: "Postęp trybu zresetowany. XP zostaje wspólne." });
   };
 
   const handleRevealMissing = () => {
@@ -720,7 +758,7 @@ export default function Game() {
       <header className="relative z-10 border-b border-border bg-card">
         <div className="max-w-5xl mx-auto px-4 py-2 sm:px-6 min-h-14 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-lg font-bold text-foreground tracking-tight">
-            Gra w wyrazy
+            Gra w rzeczowniki
           </h1>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Button
