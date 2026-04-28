@@ -1,0 +1,13 @@
+{
+  "source": "https://sjp.pl/sl/growy/",
+  "zipUrl": "https://sjp.pl/sl/growy/sjp-20260401.zip",
+  "wordsFile": "/sjp-growy.txt",
+  "wordCount": 71347,
+  "candidateWordCount": 3238764,
+  "filter": "Morfeusz 2 noun lemmas",
+  "nounTags": [
+    "subst",
+    "depr"
+  ],
+  "license": "SJP.PL game word list, available under GPL 2 or CC BY 4.0"
+}
