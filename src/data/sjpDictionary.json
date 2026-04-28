@@ -9,5 +9,10 @@
     "subst",
     "depr"
   ],
-  "license": "SJP.PL game word list, available under GPL 2 or CC BY 4.0"
+  "license": "SJP.PL game word list, available under GPL 2 or CC BY 4.0",
+  "prefixLengths": [
+    3,
+    4
+  ],
+  "minimumWordsPerPrefix": 50
 }

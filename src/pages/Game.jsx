@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { Loader2, Trash2 } from "lucide-react";
+import { Check, Loader2, RotateCcw, Timer, Trash2, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { createRoundForPrefix, getKnownPrefixes, isKnownPrefix } from "@/lib/rounds";
+import { Input } from "@/components/ui/input";
+import { createRoundForPrefix, getKnownPrefixes, getPrefixCounts, isKnownPrefix } from "@/lib/rounds";
 import PrefixDisplay from "../components/game/PrefixDisplay";
 import WordInput from "../components/game/WordInput";
 import StatusToast from "../components/game/StatusToast";
@@ -13,6 +14,11 @@ import MissingWords from "../components/game/MissingWords";
 
 const STORAGE_KEY = "gra-w-wyrazy:game-state";
 const XP_PER_LETTER = 5;
+const DEFAULT_TIME_ATTACK_SECONDS = 30;
+const MIN_TIME_ATTACK_SECONDS = 10;
+const MAX_TIME_ATTACK_SECONDS = 300;
+const QUICK_ROUND_DURATIONS = [30, 60, 90, 120];
+const SCORE_PER_LETTER = 10;
 const PREFIXES = getKnownPrefixes();
 const DEFAULT_PREFIX = PREFIXES[0] || "";
 const BACKGROUND_VIDEO_URL =
@@ -20,6 +26,27 @@ const BACKGROUND_VIDEO_URL =
 
 function getWordXp(word) {
   return Math.max(5, word.length * XP_PER_LETTER);
+}
+
+function getWordScore(word) {
+  return word.length * SCORE_PER_LETTER;
+}
+
+function clampRoundDuration(value) {
+  const duration = Math.floor(Number(value));
+
+  if (!Number.isFinite(duration)) {
+    return DEFAULT_TIME_ATTACK_SECONDS;
+  }
+
+  return Math.min(MAX_TIME_ATTACK_SECONDS, Math.max(MIN_TIME_ATTACK_SECONDS, duration));
+}
+
+function getRandomPrefix(excludedPrefix) {
+  const availablePrefixes = PREFIXES.filter((prefix) => prefix !== excludedPrefix);
+  const source = availablePrefixes.length > 0 ? availablePrefixes : PREFIXES;
+
+  return source[Math.floor(Math.random() * source.length)] || DEFAULT_PREFIX;
 }
 
 function getXpForLevel(level) {
@@ -158,7 +185,275 @@ function BackgroundVideo() {
   );
 }
 
+function TimeAttackGame() {
+  const [prefix, setPrefix] = useState(DEFAULT_PREFIX);
+  const [allWords, setAllWords] = useState([]);
+  const [foundEntries, setFoundEntries] = useState([]);
+  const [score, setScore] = useState(0);
+  const [roundDuration, setRoundDuration] = useState(DEFAULT_TIME_ATTACK_SECONDS);
+  const [timeLeft, setTimeLeft] = useState(DEFAULT_TIME_ATTACK_SECONDS);
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [roundState, setRoundState] = useState("idle");
+  const statusTimerRef = useRef(null);
+  const statusIdRef = useRef(0);
+
+  const showStatus = useCallback((nextStatus) => {
+    statusIdRef.current += 1;
+    setStatus({ id: statusIdRef.current, ...nextStatus });
+
+    if (statusTimerRef.current) {
+      clearTimeout(statusTimerRef.current);
+    }
+
+    statusTimerRef.current = setTimeout(() => setStatus(null), 1800);
+  }, []);
+
+  const loadRandomPrefix = useCallback(async (excludedPrefix) => {
+    const nextPrefix = getRandomPrefix(excludedPrefix);
+
+    setLoading(true);
+    const result = await createRoundForPrefix(nextPrefix);
+    const cleanPrefix = result.prefix.toLocaleLowerCase("pl-PL").trim();
+    const cleanWords = [
+      ...new Set(
+        result.words
+          .map((word) => word.toLocaleLowerCase("pl-PL").trim())
+          .filter((word) => word.startsWith(cleanPrefix))
+      ),
+    ];
+
+    setPrefix(cleanPrefix);
+    setAllWords(cleanWords);
+    setLoading(false);
+  }, []);
+
+  const startRound = useCallback(async () => {
+    const nextDuration = clampRoundDuration(roundDuration);
+
+    setRoundDuration(nextDuration);
+    setFoundEntries([]);
+    setScore(0);
+    setTimeLeft(nextDuration);
+    setStatus(null);
+    setRoundState("running");
+    await loadRandomPrefix(prefix);
+  }, [loadRandomPrefix, prefix, roundDuration]);
+
+  useEffect(() => {
+    return () => {
+      if (statusTimerRef.current) {
+        clearTimeout(statusTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (roundState !== "running") return undefined;
+
+    const timerId = setInterval(() => {
+      setTimeLeft((currentTime) => Math.max(0, currentTime - 1));
+    }, 1000);
+
+    return () => clearInterval(timerId);
+  }, [roundState]);
+
+  useEffect(() => {
+    if (roundState === "running" && timeLeft === 0) {
+      setRoundState("finished");
+      setLoading(false);
+      showStatus({ type: "success", message: `Koniec czasu. Wynik: ${score}` });
+    }
+  }, [roundState, score, showStatus, timeLeft]);
+
+  const handleSubmitWord = async (word) => {
+    if (roundState !== "running" || loading) return;
+
+    if (!word.startsWith(prefix)) {
+      showStatus({ type: "error", message: `Słowo musi zaczynać się od "${prefix}"` });
+      return;
+    }
+
+    if (foundEntries.some((entry) => entry.word === word)) {
+      showStatus({ type: "duplicate", message: "To słowo już padło w tej rundzie" });
+      return;
+    }
+
+    if (!allWords.includes(word)) {
+      showStatus({ type: "error", message: "SJP nie podaje takiego słowa dla tego prefiksu" });
+      return;
+    }
+
+    const points = getWordScore(word);
+    setFoundEntries((entries) => [{ word, prefix, points }, ...entries]);
+    setScore((currentScore) => currentScore + points);
+    showStatus({ type: "success", message: `+${points} pkt` });
+
+    if (timeLeft > 0) {
+      await loadRandomPrefix(prefix);
+    }
+  };
+
+  const isRunning = roundState === "running";
+  const latestEntries = foundEntries.slice(0, 18);
+  const displayedTime = isRunning || roundState === "finished" ? timeLeft : roundDuration;
+
+  const handleRoundDurationChange = (value) => {
+    if (isRunning) return;
+
+    const nextDuration = clampRoundDuration(value);
+    setRoundDuration(nextDuration);
+    setTimeLeft(nextDuration);
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-8">
+      <div className="lg:col-span-2 space-y-6">
+        <div className="rounded-lg border border-border bg-card p-5 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                Tryb na czas
+              </span>
+              <div className="mt-1 text-3xl font-bold tabular-nums text-foreground">
+                {displayedTime}s
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                Wynik
+              </span>
+              <div className="mt-1 text-3xl font-bold tabular-nums text-accent">
+                {score}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                Czas rundy
+              </span>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={MIN_TIME_ATTACK_SECONDS}
+                  max={MAX_TIME_ATTACK_SECONDS}
+                  step="5"
+                  value={roundDuration}
+                  onChange={(event) => handleRoundDurationChange(event.target.value)}
+                  disabled={isRunning}
+                  className="h-9 w-20 text-right font-semibold tabular-nums"
+                />
+                <span className="text-sm font-medium text-muted-foreground">s</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-1.5">
+              {QUICK_ROUND_DURATIONS.map((duration) => (
+                <Button
+                  key={duration}
+                  type="button"
+                  variant={roundDuration === duration ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => handleRoundDurationChange(duration)}
+                  disabled={isRunning}
+                  className="h-8 px-2 tabular-nums"
+                >
+                  {duration}s
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-md border border-border bg-background/60 px-3 py-2">
+              <span className="block text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                Słowa
+              </span>
+              <span className="text-lg font-bold tabular-nums">{foundEntries.length}</span>
+            </div>
+            <div className="rounded-md border border-border bg-background/60 px-3 py-2">
+              <span className="block text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                Punkty
+              </span>
+              <span className="text-lg font-bold tabular-nums">{SCORE_PER_LETTER}/litera</span>
+            </div>
+          </div>
+
+          <Button type="button" onClick={startRound} disabled={loading} className="h-11 w-full gap-2">
+            {roundState === "idle" ? (
+              <Timer className="h-4 w-4" />
+            ) : (
+              <RotateCcw className="h-4 w-4" />
+            )}
+            {roundState === "idle" ? "Start" : "Nowa runda"}
+          </Button>
+        </div>
+
+        <PrefixDisplay prefix={prefix} />
+
+        <WordInput onSubmit={handleSubmitWord} disabled={!isRunning || loading} />
+
+        <StatusToast status={status} />
+      </div>
+
+      <div className="lg:col-span-3 space-y-6">
+        {roundState === "finished" && (
+          <div className="rounded-lg border border-accent/25 bg-accent/10 p-5">
+            <div className="flex items-center gap-3">
+              <Trophy className="h-7 w-7 text-accent" />
+              <div>
+                <span className="text-xs font-medium uppercase tracking-widest text-accent">
+                  Twój wynik
+                </span>
+                <div className="text-3xl font-bold tabular-nums text-foreground">{score}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="bg-card border border-border rounded-lg p-5 space-y-5">
+          <div className="flex items-baseline justify-between">
+            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              Ostatnie trafienia
+            </span>
+            <span className="text-sm font-semibold tabular-nums text-muted-foreground">
+              {foundEntries.length}
+            </span>
+          </div>
+
+          {latestEntries.length === 0 ? (
+            <div className="flex items-center justify-center py-12 text-muted-foreground text-sm">
+              Uruchom rundę i wpisz pierwsze słowo
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {latestEntries.map((entry) => (
+                <span
+                  key={`${entry.prefix}:${entry.word}`}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-accent/10 text-accent border border-accent/20 rounded-md text-sm font-medium"
+                >
+                  <Check className="w-3 h-3" />
+                  <span>
+                    <span className="font-bold">{entry.prefix}</span>
+                    {entry.word.slice(entry.prefix.length)}
+                  </span>
+                  <span className="text-xs font-bold tabular-nums text-muted-foreground">
+                    +{entry.points}
+                  </span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Game() {
+  const [gameMode, setGameMode] = useState("classic");
   const [prefix, setPrefix] = useState(DEFAULT_PREFIX);
   const [allWords, setAllWords] = useState([]);
   const [prefixProgress, setPrefixProgress] = useState(() => createEmptyPrefixProgress());
@@ -204,14 +499,7 @@ export default function Game() {
   }, []);
 
   const loadPrefixCounts = useCallback(async () => {
-    const entries = await Promise.all(
-      PREFIXES.map(async (knownPrefix) => {
-        const result = await createRoundForPrefix(knownPrefix);
-        return [knownPrefix, new Set(result.words).size];
-      })
-    );
-
-    setWordCounts(Object.fromEntries(entries));
+    setWordCounts(await getPrefixCounts());
   }, []);
 
   useEffect(() => {
@@ -353,22 +641,39 @@ export default function Game() {
           <h1 className="text-lg font-bold text-foreground tracking-tight">
             Gra w wyrazy by toti
           </h1>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleResetGame}
-            disabled={loading}
-            className="h-9 gap-2"
-          >
-            <Trash2 className="h-4 w-4" />
-            Reset
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setGameMode((mode) => (mode === "classic" ? "time" : "classic"))}
+              className="h-9 gap-2"
+            >
+              <Timer className="h-4 w-4" />
+              {gameMode === "classic" ? "Tryb 30s" : "Klasyczny"}
+            </Button>
+            {gameMode === "classic" && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleResetGame}
+                disabled={loading}
+                className="h-9 gap-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                Reset
+              </Button>
+            )}
+          </div>
         </div>
       </header>
 
       <main className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-8">
+        {gameMode === "time" ? (
+          <TimeAttackGame />
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-8">
           <div className="lg:col-span-2 space-y-6">
             <PrefixDisplay prefix={prefix} />
 
@@ -423,6 +728,7 @@ export default function Game() {
             </div>
           </div>
         </div>
+        )}
       </main>
     </div>
   );
