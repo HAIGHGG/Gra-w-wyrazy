@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { Check, Loader2, RotateCcw, Timer, Trash2, Trophy } from "lucide-react";
+import { Check, Globe2, Loader2, RotateCcw, Timer, Trash2, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createRoundForPrefix, getKnownPrefixes, getPrefixCounts, isKnownPrefix } from "@/lib/rounds";
@@ -11,6 +11,7 @@ import LevelProgress from "../components/game/LevelProgress";
 import PrefixList from "../components/game/PrefixList";
 import WordList from "../components/game/WordList";
 import MissingWords from "../components/game/MissingWords";
+import OnlineGame from "../components/game/OnlineGame";
 
 const STORAGE_KEY = "gra-w-wyrazy:game-state";
 const XP_PER_LETTER = 5;
@@ -637,20 +638,39 @@ export default function Game() {
       <BackgroundVideo />
 
       <header className="relative z-10 border-b border-border bg-card">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
+        <div className="max-w-5xl mx-auto px-4 py-2 sm:px-6 min-h-14 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-lg font-bold text-foreground tracking-tight">
             Gra w wyrazy by toti
           </h1>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Button
               type="button"
-              variant="outline"
+              variant={gameMode === "classic" ? "default" : "outline"}
               size="sm"
-              onClick={() => setGameMode((mode) => (mode === "classic" ? "time" : "classic"))}
+              onClick={() => setGameMode("classic")}
+              className="h-9 gap-2"
+            >
+              Klasyczny
+            </Button>
+            <Button
+              type="button"
+              variant={gameMode === "time" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setGameMode("time")}
               className="h-9 gap-2"
             >
               <Timer className="h-4 w-4" />
-              {gameMode === "classic" ? "Tryb 30s" : "Klasyczny"}
+              Czas
+            </Button>
+            <Button
+              type="button"
+              variant={gameMode === "online" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setGameMode("online")}
+              className="h-9 gap-2"
+            >
+              <Globe2 className="h-4 w-4" />
+              Online
             </Button>
             {gameMode === "classic" && (
               <Button
@@ -670,7 +690,9 @@ export default function Game() {
       </header>
 
       <main className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        {gameMode === "time" ? (
+        {gameMode === "online" ? (
+          <OnlineGame />
+        ) : gameMode === "time" ? (
           <TimeAttackGame />
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-8">
