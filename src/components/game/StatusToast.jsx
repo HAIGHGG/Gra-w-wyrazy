@@ -10,7 +10,7 @@ const VARIANTS = {
   },
   duplicate: {
     icon: AlertCircle,
-    bg: "bg-yellow-500/10 border-yellow-500/30 text-yellow-600",
+    bg: "bg-yellow-500/10 border-yellow-500/30 text-yellow-700 dark:text-yellow-300",
   },
   error: {
     icon: X,

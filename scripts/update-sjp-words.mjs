@@ -11,6 +11,7 @@ const sourcePageUrl = "https://sjp.pl/sl/growy/";
 const metadataOutputPath = path.join(rootDir, "src", "data", "sjpDictionary.json");
 const prefixesOutputPath = path.join(rootDir, "src", "data", "prefixes.json");
 const suffixesOutputPath = path.join(rootDir, "src", "data", "suffixes.json");
+const middleAffixesOutputPath = path.join(rootDir, "src", "data", "middleAffixes.json");
 const wordsOutputPath = path.join(rootDir, "public", "sjp-growy.txt");
 const morfeuszFilterPath = path.join(__dirname, "filter-nouns-with-morfeusz.py");
 
@@ -19,6 +20,7 @@ const prefixLengths = [2, 3, 4];
 const minimumWordsPerPrefix = 50;
 const suffixLengths = [3, 4];
 const minimumWordsPerSuffix = 100;
+const minimumWordsPerMiddleAffixPair = 100;
 
 async function fetchBuffer(url) {
   const response = await fetch(url);
@@ -137,6 +139,55 @@ function generateSuffixes(words) {
     .map(([suffix]) => suffix);
 }
 
+function generateMiddleAffixes(words, prefixes, suffixes) {
+  const counts = new Map();
+  const prefixSetsByLength = new Map();
+  const suffixSetsByLength = new Map();
+
+  for (const prefix of prefixes) {
+    const set = prefixSetsByLength.get(prefix.length) || new Set();
+    set.add(prefix);
+    prefixSetsByLength.set(prefix.length, set);
+  }
+
+  for (const suffix of suffixes) {
+    const set = suffixSetsByLength.get(suffix.length) || new Set();
+    set.add(suffix);
+    suffixSetsByLength.set(suffix.length, set);
+  }
+
+  for (const word of words) {
+    const starts = [];
+    const ends = [];
+
+    for (const [length, prefixSet] of prefixSetsByLength) {
+      if (word.length >= length && prefixSet.has(word.slice(0, length))) {
+        starts.push(word.slice(0, length));
+      }
+    }
+
+    for (const [length, suffixSet] of suffixSetsByLength) {
+      if (word.length >= length && suffixSet.has(word.slice(-length))) {
+        ends.push(word.slice(-length));
+      }
+    }
+
+    for (const start of starts) {
+      for (const end of ends) {
+        if (word.length >= start.length + end.length) {
+          const key = `${start}|${end}`;
+          counts.set(key, (counts.get(key) || 0) + 1);
+        }
+      }
+    }
+  }
+
+  return [...counts.entries()]
+    .filter(([, count]) => count >= minimumWordsPerMiddleAffixPair)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "pl"))
+    .map(([pair]) => pair);
+}
+
 async function main() {
   const words = new Set();
   const zipUrl = await getLatestZipUrl();
@@ -161,6 +212,7 @@ async function main() {
   const sortedWords = await filterNounsWithMorfeusz(candidates);
   const prefixes = generatePrefixes(sortedWords);
   const suffixes = generateSuffixes(sortedWords);
+  const middleAffixes = generateMiddleAffixes(sortedWords, prefixes, suffixes);
   const metadata = {
     source: sourcePageUrl,
     zipUrl,
@@ -173,6 +225,7 @@ async function main() {
     minimumWordsPerPrefix,
     suffixLengths,
     minimumWordsPerSuffix,
+    minimumWordsPerMiddleAffixPair,
     license: "SJP.PL game word list, available under GPL 2 or CC BY 4.0",
   };
 
@@ -180,10 +233,12 @@ async function main() {
   await fs.writeFile(wordsOutputPath, `${sortedWords.join("\n")}\n`, "utf8");
   await fs.writeFile(prefixesOutputPath, `${JSON.stringify(prefixes, null, 2)}\n`, "utf8");
   await fs.writeFile(suffixesOutputPath, `${JSON.stringify(suffixes, null, 2)}\n`, "utf8");
+  await fs.writeFile(middleAffixesOutputPath, `${JSON.stringify(middleAffixes, null, 2)}\n`, "utf8");
   await fs.writeFile(metadataOutputPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
 
   console.log(
-    `Saved ${sortedWords.length} SJP noun lemmas, ${prefixes.length} prefixes, ${suffixes.length} suffixes ` +
+    `Saved ${sortedWords.length} SJP noun lemmas, ${prefixes.length} prefixes, ${suffixes.length} suffixes, ` +
+      `${middleAffixes.length} middle affix pairs ` +
       `and ${candidates.length} candidates.`,
   );
 }

@@ -1,8 +1,36 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { Check, Globe2, Loader2, RotateCcw, Timer, Trash2, Trophy } from "lucide-react";
+import {
+  AlignCenter,
+  Check,
+  ChevronDown,
+  Gamepad2,
+  Globe2,
+  Loader2,
+  RotateCcw,
+  Settings,
+  Timer,
+  Trash2,
+  Trophy,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createRoundForPrefix, getKnownPrefixes, getPrefixCounts, isKnownPrefix } from "@/lib/rounds";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  createRoundForPrefix,
+  getKnownPrefixes,
+  getPrefixCounts,
+  isKnownPrefix,
+  matchesAffixWord,
+  parseMiddleAffix,
+} from "@/lib/rounds";
 import PrefixDisplay from "../components/game/PrefixDisplay";
 import WordInput from "../components/game/WordInput";
 import StatusToast from "../components/game/StatusToast";
@@ -12,15 +40,78 @@ import PrefixList from "../components/game/PrefixList";
 import WordList from "../components/game/WordList";
 import MissingWords from "../components/game/MissingWords";
 import OnlineGame from "../components/game/OnlineGame";
+import AchievementToast from "../components/game/AchievementToast";
+import AchievementsDialog from "../components/game/AchievementsDialog";
+import ThemeToggle from "../components/ThemeToggle";
 
 const STORAGE_KEY = "gra-w-wyrazy:game-state";
 const SHARED_XP_STORAGE_KEY = `${STORAGE_KEY}:xp`;
+const ACHIEVEMENTS_STORAGE_KEY = `${STORAGE_KEY}:achievements`;
+const ACCEPTED_WORD_COUNT_STORAGE_KEY = `${STORAGE_KEY}:accepted-word-count`;
+const BAN_ACHIEVEMENT_SOUND_URL = "/achievement-ban.mp3";
+const BAN_ACHIEVEMENT_WORD = "nigger";
+const ACHIEVEMENTS = {
+  firstWord: {
+    id: "firstWord",
+    threshold: 1,
+    title: "Pierwsze słowo",
+    description: "Wpisz 1 poprawne słowo.",
+  },
+  words50: {
+    id: "words50",
+    threshold: 50,
+    title: "Rozgrzewka",
+    description: "Wpisz 50 poprawnych słów.",
+  },
+  words100: {
+    id: "words100",
+    threshold: 100,
+    title: "Setka",
+    description: "Wpisz 100 poprawnych słów.",
+  },
+  words500: {
+    id: "words500",
+    threshold: 500,
+    title: "Słowny maraton",
+    description: "Wpisz 500 poprawnych słów.",
+  },
+  words1000: {
+    id: "words1000",
+    threshold: 1000,
+    title: "Tysiąc słów",
+    description: "Wpisz 1000 poprawnych słów.",
+  },
+  words5000: {
+    id: "words5000",
+    threshold: 5000,
+    title: "Leksykalna forma",
+    description: "Wpisz 5000 poprawnych słów.",
+  },
+  words10000: {
+    id: "words10000",
+    threshold: 10000,
+    title: "Mistrz rzeczowników",
+    description: "Wpisz 10000 poprawnych słów.",
+  },
+  banAttempt: {
+    id: "banAttempt",
+    title: "No i masz bana",
+    description: "Tylko spróbuj",
+  },
+};
 const XP_PER_LETTER = 5;
 const DEFAULT_TIME_ATTACK_SECONDS = 30;
 const MIN_TIME_ATTACK_SECONDS = 10;
 const MAX_TIME_ATTACK_SECONDS = 300;
 const QUICK_ROUND_DURATIONS = [30, 60, 90, 120];
 const SCORE_PER_LETTER = 10;
+const WORD_GAME_MODES = ["classic", "reverse", "middle"];
+const GAME_MODE_OPTIONS = [
+  { id: "classic", label: "Klasyczny", icon: null },
+  { id: "reverse", label: "Odwrotny", icon: RotateCcw },
+  { id: "middle", label: "Środek", icon: AlignCenter },
+  { id: "time", label: "Czas", icon: Timer },
+];
 const WORD_MODES = {
   classic: {
     id: "classic",
@@ -37,6 +128,14 @@ const WORD_MODES = {
     storageKey: `${STORAGE_KEY}:reverse`,
     affixes: getKnownPrefixes("reverse"),
     matchWord: (word, prefix) => word.endsWith(prefix),
+  },
+  middle: {
+    id: "middle",
+    label: "środek",
+    listTitle: "Środki",
+    storageKey: `${STORAGE_KEY}:middle`,
+    affixes: getKnownPrefixes("middle"),
+    matchWord: (word, prefix) => matchesAffixWord(word, prefix, "middle"),
   },
 };
 const PREFIXES = WORD_MODES.classic.affixes;
@@ -66,8 +165,12 @@ function getWordModeConfig(mode = "classic") {
   return WORD_MODES[mode] || WORD_MODES.classic;
 }
 
+function getGameModeLabel(gameMode) {
+  return GAME_MODE_OPTIONS.find((option) => option.id === gameMode)?.label || "Wybierz";
+}
+
 function getWordModeFromGameMode(gameMode) {
-  return gameMode === "reverse" ? "reverse" : "classic";
+  return WORD_GAME_MODES.includes(gameMode) ? gameMode : "classic";
 }
 
 function getDefaultPrefix(mode = "classic") {
@@ -76,6 +179,41 @@ function getDefaultPrefix(mode = "classic") {
 
 function matchesWordMode(word, prefix, mode = "classic") {
   return getWordModeConfig(mode).matchWord(word, prefix);
+}
+
+function getWordModeMismatchMessage(affix, mode = "classic") {
+  if (mode === "middle") {
+    const { start, end } = parseMiddleAffix(affix);
+
+    return `Słowo musi zaczynać się od "${start}" i kończyć na "${end}"`;
+  }
+
+  if (mode === "reverse") {
+    return `Słowo musi kończyć się na "${affix}"`;
+  }
+
+  return `Słowo musi zaczynać się od "${affix}"`;
+}
+
+function getWordModeDictionaryMessage(mode = "classic") {
+  if (mode === "middle") {
+    return "SJP nie podaje takiego słowa dla tego środka";
+  }
+
+  return mode === "reverse"
+    ? "SJP nie podaje takiego słowa dla tej końcówki"
+    : "SJP nie podaje takiego słowa dla tego prefiksu";
+}
+
+function isBanAchievementAttempt(word, prefix, mode = "classic") {
+  return mode === "classic" && prefix === "ni" && word === BAN_ACHIEVEMENT_WORD;
+}
+
+function playAchievementSound(url) {
+  const audio = new Audio(url);
+  audio.play().catch(() => {
+    // Browsers may block playback if the submit was not treated as a user gesture.
+  });
 }
 
 function getRandomPrefix(excludedPrefix, mode = "classic") {
@@ -213,7 +351,11 @@ function readSharedTotalXp() {
     // Fall back to legacy per-mode XP below.
   }
 
-  return Math.max(readLegacyTotalXp("classic"), readLegacyTotalXp("reverse"));
+  return Math.max(
+    readLegacyTotalXp("classic"),
+    readLegacyTotalXp("reverse"),
+    readLegacyTotalXp("middle")
+  );
 }
 
 function saveSharedTotalXp(totalXp) {
@@ -223,6 +365,80 @@ function saveSharedTotalXp(totalXp) {
       JSON.stringify({
         version: 1,
         totalXp: normalizeTotalXp(totalXp),
+      })
+    );
+  } catch {
+    // localStorage can be unavailable in private mode or when storage is full.
+  }
+}
+
+function readUnlockedAchievements() {
+  try {
+    const raw = window.localStorage.getItem(ACHIEVEMENTS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+
+    return Array.isArray(parsed?.unlocked) ? parsed.unlocked : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveUnlockedAchievements(unlockedAchievements) {
+  try {
+    window.localStorage.setItem(
+      ACHIEVEMENTS_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        unlocked: unlockedAchievements,
+      })
+    );
+  } catch {
+    // localStorage can be unavailable in private mode or when storage is full.
+  }
+}
+
+function countSavedWordsForMode(mode) {
+  const savedGame = readSavedGame(mode);
+
+  if (!savedGame) return 0;
+
+  return Object.values(savedGame.progressByPrefix).reduce(
+    (sum, progress) => sum + (Array.isArray(progress.foundWords) ? progress.foundWords.length : 0),
+    0
+  );
+}
+
+function readAcceptedWordCount() {
+  try {
+    const raw = window.localStorage.getItem(ACCEPTED_WORD_COUNT_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+
+    if (typeof parsed?.count === "number" && Number.isFinite(parsed.count)) {
+      return Math.max(0, Math.floor(parsed.count));
+    }
+  } catch {
+    // Fall back to saved game progress below.
+  }
+
+  const savedProgressCount = WORD_GAME_MODES.reduce(
+    (sum, mode) => sum + countSavedWordsForMode(mode),
+    0
+  );
+
+  if (savedProgressCount > 0) {
+    return savedProgressCount;
+  }
+
+  return readUnlockedAchievements().includes(ACHIEVEMENTS.firstWord.id) ? 1 : 0;
+}
+
+function saveAcceptedWordCount(count) {
+  try {
+    window.localStorage.setItem(
+      ACCEPTED_WORD_COUNT_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        count: Math.max(0, Math.floor(count)),
       })
     );
   } catch {
@@ -260,7 +476,7 @@ function BackgroundVideo() {
   );
 }
 
-function TimeAttackGame() {
+function TimeAttackGame({ onAcceptedWord, onWordAttempt }) {
   const [prefix, setPrefix] = useState(DEFAULT_PREFIX);
   const [allWords, setAllWords] = useState([]);
   const [foundEntries, setFoundEntries] = useState([]);
@@ -344,6 +560,8 @@ function TimeAttackGame() {
   const handleSubmitWord = async (word) => {
     if (roundState !== "running" || loading) return;
 
+    onWordAttempt?.(word, prefix, "classic");
+
     if (!word.startsWith(prefix)) {
       showStatus({ type: "error", message: `Słowo musi zaczynać się od "${prefix}"` });
       return;
@@ -363,6 +581,7 @@ function TimeAttackGame() {
     setFoundEntries((entries) => [{ word, prefix, points }, ...entries]);
     setScore((currentScore) => currentScore + points);
     showStatus({ type: "success", message: `+${points} pkt` });
+    onAcceptedWord?.();
 
     if (timeLeft > 0) {
       await loadRandomPrefix(prefix);
@@ -538,6 +757,10 @@ export default function Game() {
   const [totalXp, setTotalXp] = useState(readSharedTotalXp);
   const [lastXpGain, setLastXpGain] = useState(null);
   const [status, setStatus] = useState(null);
+  const [, setAcceptedWordCount] = useState(readAcceptedWordCount);
+  const [unlockedAchievements, setUnlockedAchievements] = useState(readUnlockedAchievements);
+  const [activeAchievement, setActiveAchievement] = useState(null);
+  const [achievementsOpen, setAchievementsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [loadedWordMode, setLoadedWordMode] = useState("classic");
@@ -555,6 +778,72 @@ export default function Game() {
 
     statusTimerRef.current = setTimeout(() => setStatus(null), 2500);
   };
+
+  const unlockAchievementsForWordCount = useCallback((wordCount) => {
+    setUnlockedAchievements((currentAchievements) => {
+      const newlyUnlockedAchievements = Object.values(ACHIEVEMENTS).filter(
+        (achievement) =>
+          wordCount >= achievement.threshold &&
+          !currentAchievements.includes(achievement.id)
+      );
+
+      if (newlyUnlockedAchievements.length === 0) {
+        return currentAchievements;
+      }
+
+      const nextAchievements = [
+        ...currentAchievements,
+        ...newlyUnlockedAchievements.map((achievement) => achievement.id),
+      ];
+
+      saveUnlockedAchievements(nextAchievements);
+      setActiveAchievement(newlyUnlockedAchievements[newlyUnlockedAchievements.length - 1]);
+
+      return nextAchievements;
+    });
+  }, []);
+
+  const unlockAchievement = useCallback((achievementId, options = {}) => {
+    const achievement = ACHIEVEMENTS[achievementId];
+
+    if (!achievement) return;
+
+    setUnlockedAchievements((currentAchievements) => {
+      if (currentAchievements.includes(achievementId)) {
+        return currentAchievements;
+      }
+
+      const nextAchievements = [...currentAchievements, achievementId];
+
+      saveUnlockedAchievements(nextAchievements);
+      setActiveAchievement(achievement);
+
+      if (options.soundUrl) {
+        playAchievementSound(options.soundUrl);
+      }
+
+      return nextAchievements;
+    });
+  }, []);
+
+  const registerAcceptedWord = useCallback(() => {
+    setAcceptedWordCount((currentCount) => {
+      const nextCount = currentCount + 1;
+
+      saveAcceptedWordCount(nextCount);
+      unlockAchievementsForWordCount(nextCount);
+
+      return nextCount;
+    });
+  }, [unlockAchievementsForWordCount]);
+
+  const handleWordAttempt = useCallback((word, attemptedPrefix, attemptedMode = "classic") => {
+    if (isBanAchievementAttempt(word, attemptedPrefix, attemptedMode)) {
+      unlockAchievement(ACHIEVEMENTS.banAttempt.id, {
+        soundUrl: BAN_ACHIEVEMENT_SOUND_URL,
+      });
+    }
+  }, [unlockAchievement]);
 
   const loadPrefixWords = useCallback(async (nextPrefix, mode = "classic") => {
     if (!nextPrefix) return;
@@ -593,7 +882,7 @@ export default function Game() {
     const savedGame = readSavedGame(initialWordMode);
     const fallbackPrefix = getDefaultPrefix(initialWordMode);
 
-    if (!["classic", "reverse"].includes(gameMode)) return;
+    if (!WORD_GAME_MODES.includes(gameMode)) return;
 
     setInitialized(false);
 
@@ -621,7 +910,7 @@ export default function Game() {
       !initialized ||
       !prefix ||
       loading ||
-      !["classic", "reverse"].includes(gameMode) ||
+      !WORD_GAME_MODES.includes(gameMode) ||
       loadedWordMode !== getWordModeFromGameMode(gameMode)
     ) return;
 
@@ -649,12 +938,16 @@ export default function Game() {
     (sum, currentPrefix) => sum + (typeof wordCounts[currentPrefix] === "number" ? wordCounts[currentPrefix] : 0),
     0
   );
-  const allAffixesProgressLabel = currentWordMode === "reverse"
-    ? "Postęp wszystkich końcówek"
-    : "Postęp wszystkich prefiksów";
-  const currentAffixProgressLabel = currentWordMode === "reverse"
-    ? "Postęp końcówki"
-    : "Postęp prefiksu";
+  const allAffixesProgressLabel = currentWordMode === "middle"
+    ? "Postęp wszystkich środków"
+    : currentWordMode === "reverse"
+      ? "Postęp wszystkich końcówek"
+      : "Postęp wszystkich prefiksów";
+  const currentAffixProgressLabel = currentWordMode === "middle"
+    ? "Postęp środka"
+    : currentWordMode === "reverse"
+      ? "Postęp końcówki"
+      : "Postęp prefiksu";
 
   const handleSelectPrefix = (nextPrefix) => {
     if (nextPrefix === prefix || loading) return;
@@ -665,6 +958,8 @@ export default function Game() {
   const handleResetGame = async () => {
     try {
       window.localStorage.removeItem(currentWordModeConfig.storageKey);
+      window.localStorage.removeItem(SHARED_XP_STORAGE_KEY);
+      window.localStorage.removeItem(ACHIEVEMENTS_STORAGE_KEY);
     } catch {
       // localStorage can be unavailable in private mode.
     }
@@ -672,9 +967,14 @@ export default function Game() {
     const defaultPrefix = getDefaultPrefix(currentWordMode);
 
     setPrefixProgress(createEmptyPrefixProgress(currentWordMode));
+    setTotalXp(0);
+    setAcceptedWordCount(0);
+    saveAcceptedWordCount(0);
+    setUnlockedAchievements([]);
+    setActiveAchievement(null);
     setLastXpGain(null);
     await loadPrefixWords(defaultPrefix, currentWordMode);
-    showStatus({ type: "success", message: "Postęp trybu zresetowany. XP zostaje wspólne." });
+    showStatus({ type: "success", message: "Postęp trybu, poziom i osiągnięcia zostały zresetowane." });
   };
 
   const handleRevealMissing = () => {
@@ -687,9 +987,11 @@ export default function Game() {
     }));
     showStatus({
       type: "duplicate",
-      message: currentWordMode === "reverse"
-        ? "Brakujące słowa odkryte. Ta końcówka jest teraz zablokowana."
-        : "Brakujące słowa odkryte. Ten prefiks jest teraz zablokowany.",
+      message: currentWordMode === "middle"
+        ? "Brakujące słowa odkryte. Ten środek jest teraz zablokowany."
+        : currentWordMode === "reverse"
+          ? "Brakujące słowa odkryte. Ta końcówka jest teraz zablokowana."
+          : "Brakujące słowa odkryte. Ten prefiks jest teraz zablokowany.",
     });
   };
 
@@ -702,12 +1004,12 @@ export default function Game() {
       return;
     }
 
+    handleWordAttempt(word, prefix, currentWordMode);
+
     if (!matchesWordMode(word, prefix, currentWordMode)) {
       showStatus({
         type: "error",
-        message: currentWordMode === "reverse"
-          ? `Słowo musi kończyć się na "${prefix}"`
-          : `Słowo musi zaczynać się od "${prefix}"`,
+        message: getWordModeMismatchMessage(prefix, currentWordMode),
       });
       return;
     }
@@ -720,9 +1022,7 @@ export default function Game() {
     if (!allWords.includes(word)) {
       showStatus({
         type: "error",
-        message: currentWordMode === "reverse"
-          ? "SJP nie podaje takiego słowa dla tej końcówki"
-          : "SJP nie podaje takiego słowa dla tego prefiksu",
+        message: getWordModeDictionaryMessage(currentWordMode),
       });
       return;
     }
@@ -752,14 +1052,19 @@ export default function Game() {
       type: "success",
       message: leveledUp ? `Awans na LVL ${nextLevel}! +${xpGain} XP` : `Dodano! +${xpGain} XP`,
     });
+    registerAcceptedWord();
   };
 
-  if (["classic", "reverse"].includes(gameMode) && !initialized) {
+  if (WORD_GAME_MODES.includes(gameMode) && !initialized) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-muted-foreground">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
         <span className="text-sm font-medium">
-          {currentWordMode === "reverse" ? "Przygotowywanie końcówek..." : "Przygotowywanie prefiksów..."}
+          {currentWordMode === "middle"
+            ? "Przygotowywanie środków..."
+            : currentWordMode === "reverse"
+              ? "Przygotowywanie końcówek..."
+              : "Przygotowywanie prefiksów..."}
         </span>
       </div>
     );
@@ -768,6 +1073,16 @@ export default function Game() {
   return (
     <div className="relative min-h-screen bg-background">
       <BackgroundVideo />
+      <AchievementToast
+        achievement={activeAchievement}
+        onClose={() => setActiveAchievement(null)}
+      />
+      <AchievementsDialog
+        achievements={Object.values(ACHIEVEMENTS)}
+        unlockedAchievements={unlockedAchievements}
+        open={achievementsOpen}
+        onOpenChange={setAchievementsOpen}
+      />
 
       <header className="relative z-10 border-b border-border bg-card">
         <div className="max-w-5xl mx-auto px-4 py-2 sm:px-6 min-h-14 flex flex-wrap items-center justify-between gap-3">
@@ -775,35 +1090,32 @@ export default function Game() {
             Gra w rzeczowniki
           </h1>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button
-              type="button"
-              variant={gameMode === "classic" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setGameMode("classic")}
-              className="h-9 gap-2"
-            >
-              Klasyczny
-            </Button>
-            <Button
-              type="button"
-              variant={gameMode === "reverse" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setGameMode("reverse")}
-              className="h-9 gap-2"
-            >
-              <RotateCcw className="h-4 w-4" />
-              Odwrotny
-            </Button>
-            <Button
-              type="button"
-              variant={gameMode === "time" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setGameMode("time")}
-              className="h-9 gap-2"
-            >
-              <Timer className="h-4 w-4" />
-              Czas
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm" className="h-9 gap-2">
+                  <Gamepad2 className="h-4 w-4" />
+                  Tryby gry
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    {getGameModeLabel(gameMode)}
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuRadioGroup value={gameMode} onValueChange={setGameMode}>
+                  {GAME_MODE_OPTIONS.map((option) => {
+                    const Icon = option.icon;
+
+                    return (
+                      <DropdownMenuRadioItem key={option.id} value={option.id} className="gap-2">
+                        {Icon ? <Icon className="h-4 w-4" /> : <Gamepad2 className="h-4 w-4" />}
+                        {option.label}
+                      </DropdownMenuRadioItem>
+                    );
+                  })}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button
               type="button"
               variant={gameMode === "online" ? "default" : "outline"}
@@ -814,28 +1126,58 @@ export default function Game() {
               <Globe2 className="h-4 w-4" />
               Online
             </Button>
-            {["classic", "reverse"].includes(gameMode) && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleResetGame}
-                disabled={loading}
-                className="h-9 gap-2"
-              >
-                <Trash2 className="h-4 w-4" />
-                Reset
-              </Button>
-            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm" className="h-9 gap-2">
+                  <Settings className="h-4 w-4" />
+                  Ustawienia
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem
+                  onSelect={() => setAchievementsOpen(true)}
+                  className="justify-between"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Trophy className="h-4 w-4" />
+                    Osiągnięcia
+                  </span>
+                  <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-primary">
+                    {unlockedAchievements.length}/{Object.values(ACHIEVEMENTS).length}
+                  </span>
+                </DropdownMenuItem>
+                {WORD_GAME_MODES.includes(gameMode) && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={handleResetGame}
+                      disabled={loading}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Reset
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <ThemeToggle />
           </div>
         </div>
       </header>
 
       <main className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {gameMode === "online" ? (
-          <OnlineGame />
+          <OnlineGame
+            onAcceptedWord={registerAcceptedWord}
+            onWordAttempt={handleWordAttempt}
+          />
         ) : gameMode === "time" ? (
-          <TimeAttackGame />
+          <TimeAttackGame
+            onAcceptedWord={registerAcceptedWord}
+            onWordAttempt={handleWordAttempt}
+          />
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-8">
           <div className="lg:col-span-2 space-y-6">
@@ -860,10 +1202,12 @@ export default function Game() {
             />
 
             {isCurrentPrefixLocked && (
-              <div className="rounded-lg border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-sm font-medium text-yellow-700">
-                {currentWordMode === "reverse"
-                  ? "Ta końcówka jest zablokowana, bo pokazano brakujące słowa."
-                  : "Ten prefiks jest zablokowany, bo pokazano brakujące słowa."}
+              <div className="rounded-lg border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-sm font-medium text-yellow-700 dark:text-yellow-300">
+                {currentWordMode === "middle"
+                  ? "Ten środek jest zablokowany, bo pokazano brakujące słowa."
+                  : currentWordMode === "reverse"
+                    ? "Ta końcówka jest zablokowana, bo pokazano brakujące słowa."
+                    : "Ten prefiks jest zablokowany, bo pokazano brakujące słowa."}
               </div>
             )}
 
@@ -877,6 +1221,7 @@ export default function Game() {
               onSelect={handleSelectPrefix}
               disabled={loading}
               title={currentWordModeConfig.listTitle}
+              mode={currentWordMode}
             />
           </div>
 

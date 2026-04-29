@@ -2,8 +2,10 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { Eye, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { parseMiddleAffix } from "@/lib/rounds";
 
 export default function MissingWords({ words, prefix, foundWords, revealed, onReveal, mode = "classic" }) {
+  const middleAffix = mode === "middle" ? parseMiddleAffix(prefix) : null;
   const missing = words.filter((word) => !foundWords.includes(word));
 
   if (missing.length === 0 && foundWords.length > 0) {
@@ -47,7 +49,13 @@ export default function MissingWords({ words, prefix, foundWords, revealed, onRe
                   key={word}
                   className="inline-block px-2.5 py-1 bg-secondary text-muted-foreground border border-border rounded-md text-sm"
                 >
-                  {mode === "reverse" ? (
+                  {mode === "middle" ? (
+                    <>
+                      <span className="font-semibold">{middleAffix.start}</span>
+                      {word.slice(middleAffix.start.length, -middleAffix.end.length)}
+                      <span className="font-semibold">{middleAffix.end}</span>
+                    </>
+                  ) : mode === "reverse" ? (
                     <>
                       {word.slice(0, -prefix.length)}
                       <span className="font-semibold">{prefix}</span>

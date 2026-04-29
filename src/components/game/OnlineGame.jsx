@@ -30,7 +30,7 @@ function getInitialRoomCode() {
   return new URLSearchParams(window.location.search).get("room")?.trim().toUpperCase() || "";
 }
 
-export default function OnlineGame() {
+export default function OnlineGame({ onAcceptedWord, onWordAttempt }) {
   const [socket, setSocket] = useState(null);
   const [connected, setConnected] = useState(false);
   const [name, setName] = useState(() => window.localStorage.getItem("gra-w-wyrazy:online-name") || "");
@@ -226,6 +226,8 @@ export default function OnlineGame() {
   const submitWord = async (word) => {
     if (!socket || !room || !isRunning) return;
 
+    onWordAttempt?.(word, playerState.prefix, "classic");
+
     const response = await emitWithAck("online:submitWord", { word });
 
     if (!response?.ok) {
@@ -234,6 +236,7 @@ export default function OnlineGame() {
     }
 
     showStatus({ type: "success", message: `+${response.points} pkt` });
+    onAcceptedWord?.();
   };
 
   const requestHint = async () => {
@@ -569,7 +572,7 @@ export default function OnlineGame() {
                           </span>
                         )}
                         {entry.hintsUsed > 0 && !entry.hidden && (
-                          <span className="font-bold tabular-nums text-yellow-600">
+                          <span className="font-bold tabular-nums text-yellow-700 dark:text-yellow-300">
                             <Lightbulb className="inline h-3 w-3" />
                             {entry.hintsUsed}
                           </span>

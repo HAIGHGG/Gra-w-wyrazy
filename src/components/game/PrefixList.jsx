@@ -1,6 +1,7 @@
 import React from "react";
 import { Lock, Search, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatAffixLabel } from "@/lib/rounds";
 
 export default function PrefixList({
   prefixes,
@@ -10,6 +11,7 @@ export default function PrefixList({
   onSelect,
   disabled,
   title = "Prefiksy",
+  mode = "classic",
 }) {
   return (
     <div className="rounded-lg border border-border bg-card p-4">
@@ -51,12 +53,12 @@ export default function PrefixList({
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono text-lg font-bold text-foreground">
-                  {prefix}
+                  {formatAffixLabel(prefix, mode)}
                 </span>
                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground">
                   {progress.revealedMissing ? (
                     <>
-                      <Lock className="h-3.5 w-3.5 text-yellow-600" />
+                      <Lock className="h-3.5 w-3.5 text-yellow-700 dark:text-yellow-300" />
                       odkryte
                     </>
                   ) : isComplete ? (

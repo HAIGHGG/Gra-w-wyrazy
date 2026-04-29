@@ -1,10 +1,12 @@
 import prefixConfig from "@/data/prefixes.json";
 import suffixConfig from "@/data/suffixes.json";
+import middleConfig from "@/data/middleAffixes.json";
 import sjpDictionary from "@/data/sjpDictionary.json";
 
 let dictionaryPromise;
 const affixCache = new Map();
 const affixIndexPromises = new Map();
+const MIDDLE_AFFIX_SEPARATOR = "|";
 
 const randomItem = (items) => items[Math.floor(Math.random() * items.length)];
 
@@ -12,15 +14,47 @@ const modeConfigs = {
   classic: {
     affixes: prefixConfig,
     getAffix: (word, length) => word.slice(0, length),
+    matchesWord: (word, affix) => word.startsWith(affix),
   },
   reverse: {
     affixes: suffixConfig,
     getAffix: (word, length) => word.slice(-length),
+    matchesWord: (word, affix) => word.endsWith(affix),
+  },
+  middle: {
+    affixes: middleConfig,
+    matchesWord: (word, affix) => {
+      const { start, end } = parseMiddleAffix(affix);
+
+      return (
+        word.length >= start.length + end.length &&
+        word.startsWith(start) &&
+        word.endsWith(end)
+      );
+    },
   },
 };
 
 function getModeConfig(mode = "classic") {
   return modeConfigs[mode] || modeConfigs.classic;
+}
+
+export function parseMiddleAffix(affix) {
+  const [start = "", end = ""] = String(affix).split(MIDDLE_AFFIX_SEPARATOR);
+
+  return { start, end };
+}
+
+export function formatAffixLabel(affix, mode = "classic") {
+  if (mode !== "middle") return affix;
+
+  const { start, end } = parseMiddleAffix(affix);
+
+  return `${start}...${end}`;
+}
+
+export function matchesAffixWord(word, affix, mode = "classic") {
+  return getModeConfig(mode).matchesWord(word, affix);
 }
 
 async function loadDictionary() {
@@ -45,14 +79,25 @@ async function loadAffixIndex(mode = "classic") {
   if (!affixIndexPromises.has(mode)) {
     affixIndexPromises.set(mode, loadDictionary().then((dictionary) => {
       const affixSets = new Map(config.affixes.map((affix) => [affix, []]));
-      const affixLengths = [...new Set(config.affixes.map((affix) => affix.length))];
 
-      for (const word of dictionary) {
-        for (const length of affixLengths) {
-          if (word.length >= length) {
-            const affix = config.getAffix(word, length);
+      if (config.getAffix) {
+        const affixLengths = [...new Set(config.affixes.map((affix) => affix.length))];
 
-            if (affixSets.has(affix)) {
+        for (const word of dictionary) {
+          for (const length of affixLengths) {
+            if (word.length >= length) {
+              const affix = config.getAffix(word, length);
+
+              if (affixSets.has(affix)) {
+                affixSets.get(affix).push(word);
+              }
+            }
+          }
+        }
+      } else {
+        for (const word of dictionary) {
+          for (const affix of config.affixes) {
+            if (config.matchesWord(word, affix)) {
               affixSets.get(affix).push(word);
             }
           }

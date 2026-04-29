@@ -1,8 +1,11 @@
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check } from "lucide-react";
+import { parseMiddleAffix } from "@/lib/rounds";
 
 export default function WordList({ words, prefix, mode = "classic" }) {
+  const middleAffix = mode === "middle" ? parseMiddleAffix(prefix) : null;
+
   if (words.length === 0) {
     return (
       <div className="flex items-center justify-center py-10 text-muted-foreground text-sm">
@@ -25,7 +28,13 @@ export default function WordList({ words, prefix, mode = "classic" }) {
             className="inline-flex items-center gap-1 px-2.5 py-1 bg-accent/10 text-accent border border-accent/20 rounded-md text-sm font-medium"
           >
             <Check className="w-3 h-3" />
-            {mode === "reverse" ? (
+            {mode === "middle" ? (
+              <span>
+                <span className="font-bold">{middleAffix.start}</span>
+                {word.slice(middleAffix.start.length, -middleAffix.end.length)}
+                <span className="font-bold">{middleAffix.end}</span>
+              </span>
+            ) : mode === "reverse" ? (
               <span>
                 {word.slice(0, -prefix.length)}
                 <span className="font-bold">{prefix}</span>
