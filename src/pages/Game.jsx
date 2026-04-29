@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useTypingSpeed } from "@/hooks/use-typing-speed";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,6 +43,7 @@ import MissingWords from "../components/game/MissingWords";
 import OnlineGame from "../components/game/OnlineGame";
 import AchievementToast from "../components/game/AchievementToast";
 import AchievementsDialog from "../components/game/AchievementsDialog";
+import TypingSpeed from "../components/game/TypingSpeed";
 import ThemeToggle from "../components/ThemeToggle";
 
 const STORAGE_KEY = "gra-w-wyrazy:game-state";
@@ -93,8 +95,69 @@ const ACHIEVEMENTS = {
     title: "Mistrz rzeczowników",
     description: "Wpisz 10000 poprawnych słów.",
   },
+  speed5: {
+    id: "speed5",
+    speedThreshold: 5,
+    title: "Szybki start",
+    description: "Osiągnij tempo 5 słów na minutę.",
+  },
+  speed10: {
+    id: "speed10",
+    speedThreshold: 10,
+    title: "Dobre tempo",
+    description: "Osiągnij tempo 10 słów na minutę.",
+  },
+  speed15: {
+    id: "speed15",
+    speedThreshold: 15,
+    title: "Szybkie palce",
+    description: "Osiągnij tempo 15 słów na minutę.",
+  },
+  speed20: {
+    id: "speed20",
+    speedThreshold: 20,
+    title: "Ekspres",
+    description: "Osiągnij tempo 20 słów na minutę.",
+  },
+  speed25: {
+    id: "speed25",
+    speedThreshold: 25,
+    title: "Maszyna do słów",
+    description: "Osiągnij tempo 25 słów na minutę.",
+  },
+  level5: {
+    id: "level5",
+    levelThreshold: 5,
+    title: "Piąty poziom",
+    description: "Wbij 5 poziom.",
+  },
+  level10: {
+    id: "level10",
+    levelThreshold: 10,
+    title: "Dwucyfrowy poziom",
+    description: "Wbij 10 poziom.",
+  },
+  level25: {
+    id: "level25",
+    levelThreshold: 25,
+    title: "Ćwierć setki",
+    description: "Wbij 25 poziom.",
+  },
+  level50: {
+    id: "level50",
+    levelThreshold: 50,
+    title: "Poziom 50",
+    description: "Wbij 50 poziom.",
+  },
+  level100: {
+    id: "level100",
+    levelThreshold: 100,
+    title: "Poziom 100",
+    description: "Wbij 100 poziom.",
+  },
   banAttempt: {
     id: "banAttempt",
+    optionalHidden: true,
     title: "No i masz bana",
     description: "Tylko spróbuj",
   },
@@ -167,6 +230,18 @@ function getWordModeConfig(mode = "classic") {
 
 function getGameModeLabel(gameMode) {
   return GAME_MODE_OPTIONS.find((option) => option.id === gameMode)?.label || "Wybierz";
+}
+
+function getAchievementProgress(unlockedAchievements) {
+  const progressAchievements = Object.values(ACHIEVEMENTS).filter(
+    (achievement) => !achievement.optionalHidden
+  );
+  const unlockedSet = new Set(unlockedAchievements);
+
+  return {
+    unlocked: progressAchievements.filter((achievement) => unlockedSet.has(achievement.id)).length,
+    total: progressAchievements.length,
+  };
 }
 
 function getWordModeFromGameMode(gameMode) {
@@ -486,6 +561,7 @@ function TimeAttackGame({ onAcceptedWord, onWordAttempt }) {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
   const [roundState, setRoundState] = useState("idle");
+  const typingSpeed = useTypingSpeed();
   const statusTimerRef = useRef(null);
   const statusIdRef = useRef(0);
 
@@ -528,8 +604,9 @@ function TimeAttackGame({ onAcceptedWord, onWordAttempt }) {
     setTimeLeft(nextDuration);
     setStatus(null);
     setRoundState("running");
+    typingSpeed.reset();
     await loadRandomPrefix(prefix);
-  }, [loadRandomPrefix, prefix, roundDuration]);
+  }, [loadRandomPrefix, prefix, roundDuration, typingSpeed]);
 
   useEffect(() => {
     return () => {
@@ -580,8 +657,9 @@ function TimeAttackGame({ onAcceptedWord, onWordAttempt }) {
     const points = getWordScore(word);
     setFoundEntries((entries) => [{ word, prefix, points }, ...entries]);
     setScore((currentScore) => currentScore + points);
+    const nextSpeed = typingSpeed.record();
     showStatus({ type: "success", message: `+${points} pkt` });
-    onAcceptedWord?.();
+    onAcceptedWord?.(nextSpeed.wordsPerMinute);
 
     if (timeLeft > 0) {
       await loadRandomPrefix(prefix);
@@ -687,6 +765,8 @@ function TimeAttackGame({ onAcceptedWord, onWordAttempt }) {
 
         <PrefixDisplay prefix={prefix} />
 
+        <TypingSpeed speed={typingSpeed.speed} />
+
         <WordInput onSubmit={handleSubmitWord} disabled={!isRunning || loading} />
 
         <StatusToast status={status} />
@@ -764,6 +844,7 @@ export default function Game() {
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [loadedWordMode, setLoadedWordMode] = useState("classic");
+  const typingSpeed = useTypingSpeed();
   const statusTimerRef = useRef(null);
   const statusIdRef = useRef(0);
   const xpGainIdRef = useRef(0);
@@ -779,11 +860,15 @@ export default function Game() {
     statusTimerRef.current = setTimeout(() => setStatus(null), 2500);
   };
 
-  const unlockAchievementsForWordCount = useCallback((wordCount) => {
+  const unlockProgressAchievements = useCallback(({ wordCount, wordsPerMinute = 0, level = 1 }) => {
     setUnlockedAchievements((currentAchievements) => {
       const newlyUnlockedAchievements = Object.values(ACHIEVEMENTS).filter(
         (achievement) =>
-          wordCount >= achievement.threshold &&
+          (
+            (typeof achievement.threshold === "number" && wordCount >= achievement.threshold) ||
+            (typeof achievement.speedThreshold === "number" && wordsPerMinute >= achievement.speedThreshold) ||
+            (typeof achievement.levelThreshold === "number" && level >= achievement.levelThreshold)
+          ) &&
           !currentAchievements.includes(achievement.id)
       );
 
@@ -826,16 +911,20 @@ export default function Game() {
     });
   }, []);
 
-  const registerAcceptedWord = useCallback(() => {
+  const registerAcceptedWord = useCallback((wordsPerMinute = 0, level = 1) => {
     setAcceptedWordCount((currentCount) => {
       const nextCount = currentCount + 1;
 
       saveAcceptedWordCount(nextCount);
-      unlockAchievementsForWordCount(nextCount);
+      unlockProgressAchievements({
+        wordCount: nextCount,
+        wordsPerMinute,
+        level,
+      });
 
       return nextCount;
     });
-  }, [unlockAchievementsForWordCount]);
+  }, [unlockProgressAchievements]);
 
   const handleWordAttempt = useCallback((word, attemptedPrefix, attemptedMode = "classic") => {
     if (isBanAchievementAttempt(word, attemptedPrefix, attemptedMode)) {
@@ -948,6 +1037,7 @@ export default function Game() {
     : currentWordMode === "reverse"
       ? "Postęp końcówki"
       : "Postęp prefiksu";
+  const achievementProgress = getAchievementProgress(unlockedAchievements);
 
   const handleSelectPrefix = (nextPrefix) => {
     if (nextPrefix === prefix || loading) return;
@@ -972,6 +1062,7 @@ export default function Game() {
     saveAcceptedWordCount(0);
     setUnlockedAchievements([]);
     setActiveAchievement(null);
+    typingSpeed.reset();
     setLastXpGain(null);
     await loadPrefixWords(defaultPrefix, currentWordMode);
     showStatus({ type: "success", message: "Postęp trybu, poziom i osiągnięcia zostały zresetowane." });
@@ -1041,6 +1132,7 @@ export default function Game() {
       },
     }));
     setTotalXp(nextTotalXp);
+    const nextSpeed = typingSpeed.record();
     xpGainIdRef.current += 1;
     setLastXpGain({
       id: xpGainIdRef.current,
@@ -1052,7 +1144,7 @@ export default function Game() {
       type: "success",
       message: leveledUp ? `Awans na LVL ${nextLevel}! +${xpGain} XP` : `Dodano! +${xpGain} XP`,
     });
-    registerAcceptedWord();
+    registerAcceptedWord(nextSpeed.wordsPerMinute, nextLevel);
   };
 
   if (WORD_GAME_MODES.includes(gameMode) && !initialized) {
@@ -1144,7 +1236,7 @@ export default function Game() {
                     Osiągnięcia
                   </span>
                   <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-primary">
-                    {unlockedAchievements.length}/{Object.values(ACHIEVEMENTS).length}
+                    {achievementProgress.unlocked}/{achievementProgress.total}
                   </span>
                 </DropdownMenuItem>
                 {WORD_GAME_MODES.includes(gameMode) && (
@@ -1187,6 +1279,8 @@ export default function Game() {
               levelState={getLevelState(totalXp)}
               lastGain={lastXpGain}
             />
+
+            <TypingSpeed speed={typingSpeed.speed} />
 
             <div className="rounded-lg border border-border bg-card p-4">
               <ProgressCounter

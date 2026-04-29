@@ -19,8 +19,12 @@ export default function AchievementsDialog({
   trigger,
 }) {
   const unlockedSet = new Set(unlockedAchievements);
-  const unlockedCount = achievements.filter((achievement) => unlockedSet.has(achievement.id)).length;
-  const totalCount = achievements.length;
+  const progressAchievements = achievements.filter((achievement) => !achievement.optionalHidden);
+  const visibleAchievements = achievements.filter(
+    (achievement) => !achievement.optionalHidden || unlockedSet.has(achievement.id)
+  );
+  const unlockedCount = progressAchievements.filter((achievement) => unlockedSet.has(achievement.id)).length;
+  const totalCount = progressAchievements.length;
   const progressPercent = totalCount > 0 ? Math.round((unlockedCount / totalCount) * 100) : 0;
 
   return (
@@ -52,7 +56,7 @@ export default function AchievementsDialog({
           </div>
 
           <div className="space-y-2">
-            {achievements.map((achievement) => {
+            {visibleAchievements.map((achievement) => {
               const unlocked = unlockedSet.has(achievement.id);
               const Icon = unlocked ? CheckCircle2 : Lock;
 
@@ -84,7 +88,7 @@ export default function AchievementsDialog({
                         </div>
                         <Badge variant={unlocked ? "default" : "secondary"} className="gap-1">
                           {unlocked && <Sparkles className="h-3 w-3" />}
-                          {unlocked ? "Odblokowane" : "Zablokowane"}
+                          {achievement.optionalHidden ? "Sekretne" : unlocked ? "Odblokowane" : "Zablokowane"}
                         </Badge>
                       </div>
                       <div className="mt-1 text-sm font-medium text-muted-foreground">

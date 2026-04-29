@@ -3,8 +3,10 @@ import { Check, Copy, Lightbulb, Link2, LogOut, Play, Radio, RotateCcw, Trophy, 
 import { io } from "socket.io-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useTypingSpeed } from "@/hooks/use-typing-speed";
 import PrefixDisplay from "./PrefixDisplay";
 import StatusToast from "./StatusToast";
+import TypingSpeed from "./TypingSpeed";
 import WordInput from "./WordInput";
 
 const DEFAULT_DURATION = 60;
@@ -48,6 +50,7 @@ export default function OnlineGame({ onAcceptedWord, onWordAttempt }) {
   });
   const [timeLeft, setTimeLeft] = useState(0);
   const [status, setStatus] = useState(null);
+  const typingSpeed = useTypingSpeed();
   const statusTimerRef = useRef(null);
   const statusIdRef = useRef(0);
   const serverClockOffsetRef = useRef(0);
@@ -185,6 +188,7 @@ export default function OnlineGame({ onAcceptedWord, onWordAttempt }) {
   const startRound = async () => {
     if (!socket || !room || !isHost) return;
 
+    typingSpeed.reset();
     const response = await emitWithAck("online:startRound", {});
 
     if (!response?.ok) {
@@ -194,6 +198,7 @@ export default function OnlineGame({ onAcceptedWord, onWordAttempt }) {
 
   const leaveRoom = () => {
     socket?.emit("online:leaveRoom");
+    typingSpeed.reset();
     setRoom(null);
     setPlayerState({ prefix: "", score: 0, wordCount: 0, isHost: false, hint: "", hintCount: 0, maxHints: 0 });
     setTimeLeft(0);
@@ -236,7 +241,8 @@ export default function OnlineGame({ onAcceptedWord, onWordAttempt }) {
     }
 
     showStatus({ type: "success", message: `+${response.points} pkt` });
-    onAcceptedWord?.();
+    const nextSpeed = typingSpeed.record();
+    onAcceptedWord?.(nextSpeed.wordsPerMinute);
   };
 
   const requestHint = async () => {
@@ -489,6 +495,7 @@ export default function OnlineGame({ onAcceptedWord, onWordAttempt }) {
           </div>
         )}
         <WordInput onSubmit={submitWord} disabled={!isRunning || !playerState.prefix} />
+        <TypingSpeed speed={typingSpeed.speed} />
         <StatusToast status={status} />
       </div>
 
